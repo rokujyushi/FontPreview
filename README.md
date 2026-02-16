@@ -29,10 +29,10 @@ AviUtl ExEdit2 向けの汎用プラグイン（`.aux2`）です。
 右上のボタンで、選択フォントを使ったオブジェクトを現在位置へ追加します。
 
 - `＋` : 標準の `テキスト` オブジェクトを追加
-- `VF＋` : `Variable Font Text`（本リポジトリの VariableFont プラグイン）オブジェクトを追加
+- `VF＋` : `Variable Font Text`（[VariableFont プラグイン](https://github.com/rokujyushi/Variable-Font-Plug-ins)）オブジェクトを追加
 
 注意:
-- `VF＋` を使うには、`VariableFont.auf2`（表示名: `テキスト(VF)` / effect.name: `Variable Font Text`）がインストールされている必要があります。
+- `VF＋` を使うには、`VariableFont.auf2`がインストールされている必要があります。
 - どちらも「エイリアスからオブジェクト作成」を使って追加します（レイヤー/フレームは現在の編集位置）。
 
 ### 4) 既存オブジェクトへフォントを適用する（ダブルクリック）
