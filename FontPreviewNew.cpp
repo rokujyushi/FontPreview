@@ -1636,7 +1636,7 @@ EXTERN_C __declspec(dllexport) void UninitializePlugin()
 //---------------------------------------------------------------------
 EXTERN_C __declspec(dllexport) void RegisterPlugin(HOST_APP_TABLE *host)
 {
-	host->set_plugin_information(L"Font Preview Grid v1.0 By 黒猫大福");
+	host->set_plugin_information(L"Font Preview 1.0.0 By 黒猫大福");
 
 	INITCOMMONCONTROLSEX icc{};
 	icc.dwSize = sizeof(icc);
