@@ -1,4 +1,4 @@
-# FontPreview（Font Preview Grid）
+# FontPreview
 
 AviUtl ExEdit2 向けの汎用プラグイン（`.aux2`）です。
 フォント一覧を検索・絞り込みし、選択フォントでプレビュー表示したり、拡張編集へオブジェクトを追加（エイリアス貼り付け相当）できます。
