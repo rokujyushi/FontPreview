@@ -8,15 +8,6 @@ AviUtl ExEdit2 向けの汎用プラグイン（`.aux2`）です。
 - AviUtl2 + ExEdit2
 - Windows 10 以降推奨
 
-## インストール
-
-1. `FontPreview.aux2` を用意します（ビルド済み配布、または自分でビルド）。
-2. AviUtl2 のプラグインフォルダにコピーします。
-   - 例: `C:\ProgramData\aviutl2\Plugin\`
-3. AviUtl2 を起動（または再起動）します。
-
-ビルド出力は通常 `bin\x64\Release\FontPreview.aux2` です。
-
 ## 使い方
 
 プラグインを読み込むと、フォントプレビュー用のウィンドウ（`FontPreviewClient`）が表示されます。
@@ -66,9 +57,4 @@ AviUtl ExEdit2 向けの汎用プラグイン（`.aux2`）です。
 - `Release|x64` でビルド
 - PowerShell から: `build_release.ps1`
 
-## 実装メモ（挙動の根拠）
-
-- プラグイン情報: `Font Preview Grid v1.0 By 黒猫大福`
-- オブジェクト追加: `create_object_from_alias` を利用
-- フォント適用: `set_object_item_value` を利用
 
