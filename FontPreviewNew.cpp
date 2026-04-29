@@ -49,6 +49,7 @@ using Microsoft::WRL::ComPtr;
 #define IDC_TYPE_LABEL 1008
 #define IDC_AXIS_LABEL 1009
 #define IDC_ADD_BUTTON 1010
+#define IDC_ADD_VFO_BUTTON 1011
 
 constexpr int kGridCols = 2;
 constexpr int kGridRows = 5;
@@ -102,6 +103,7 @@ HWND g_hwndType = nullptr;
 HWND g_hwndBgBtn = nullptr;
 HWND g_hwndSample = nullptr;
 HWND g_hwndAddVF = nullptr;
+HWND g_hwndAddVFO = nullptr;
 HWND g_hwndAddText = nullptr;
 HWND g_hwndNameLabel = nullptr;
 HWND g_hwndTypeLabel = nullptr;
@@ -1024,63 +1026,6 @@ std::string BuildVFAliasFromSelection(const FontItem &item, const std::wstring &
 	alias << "effect.name=Variable Font Text\n";
 	alias << "フォントファイル=" << (item.isSystemFont ? "" : ToUtf8(fontValue)) << "\n";
 	alias << "フォント=" << (item.isSystemFont ? ToUtf8(fontValue) : "") << "\n";
-	alias << "サイズ=80.0\n";
-	alias << "文字色=ffffff\n";
-	alias << "B=0\n";
-	alias << "I=0\n";
-	alias << "字間=0.0\n";
-	alias << "影設定.hide=1\n";
-	alias << "影を表示=0\n";
-	alias << "影色=000000\n";
-	alias << "影X=0.0\n";
-	alias << "影Y=0.0\n";
-	alias << "影濃度=100\n";
-	alias << "影ぼかし=0.0\n";
-	alias << "縁取り設定.hide=1\n";
-	alias << "縁取りを表示=0\n";
-	alias << "縁取り色=000000\n";
-	alias << "縁取り幅=5.0\n";
-	alias << "縁取りスタイル=丸\n";
-	alias << "切り抜き=0\n";
-	alias << "Weight=400\n";
-	alias << "Width=100\n";
-	alias << "Slant=0.0\n";
-	alias << "Optical Size=12.0\n";
-	alias << "Italic Axis=0.0\n";
-	alias << "Grade (GRAD)=0.0\n";
-	alias << "XTRA=0\n";
-	alias << "XOPQ=0\n";
-	alias << "YOPQ=0\n";
-	alias << "YTLC=0\n";
-	alias << "YTUC=0\n";
-	alias << "YTAS=0\n";
-	alias << "YTDE=0\n";
-	alias << "YTFI=0\n";
-	alias << "軸更新モード=リアルタイム\n";
-	alias << "横幅=0\n";
-	alias << "縦幅=0\n";
-	alias << "文字揃え=中央揃え[中]\n";
-	alias << "行間=0.0\n";
-	alias << "アニメーション.hide=1\n";
-	alias << "表示速度=0.0\n";
-	alias << "文字毎に個別オブジェクト=1\n";
-	alias << "テキスト=" << ToUtf8(text) << "\n";
-	alias << "[Object.1]\n";
-	alias << "effect.name=標準描画\n";
-	alias << "X=0.00\n";
-	alias << "Y=0.00\n";
-	alias << "Z=0.00\n";
-	alias << "Group=1\n";
-	alias << "中心X=0.00\n";
-	alias << "中心Y=0.00\n";
-	alias << "中心Z=0.00\n";
-	alias << "X軸回転=0.00\n";
-	alias << "Y軸回転=0.00\n";
-	alias << "Z軸回転=0.00\n";
-	alias << "拡大率=100.000\n";
-	alias << "縦横比=0.000\n";
-	alias << "透明度=0.00\n";
-	alias << "合成モード=通常\n";
 	return alias.str();
 }
 //---------------------------------------------------------------------
@@ -1095,38 +1040,24 @@ std::string BuildAliasFromSelection(const FontItem &item, const std::wstring &te
 	alias << "frame=0," << frameLength << "\n";
 	alias << "[Object.0]\n";
 	alias << "effect.name=テキスト\n";
-	alias << "サイズ=80.0\n";
-	alias << "字間=0.00\n";
-	alias << "行間=0.00\n";
-	alias << "表示速度=0.00\n";
 	alias << "フォント=" << ToUtf8(item.displayName) << "\n";
-	alias << "文字色=ffffff\n";
-	alias << "影・縁色=000000\n";
-	alias << "文字装飾=標準文字\n";
-	alias << "文字揃え=中央揃え[中]\n";
-	alias << "B=0\n";
-	alias << "I=0\n";
-	alias << "テキスト=" << ToUtf8(text) << "\n";
-	alias << "文字毎に個別オブジェクト=0\n";
-	alias << "自動スクロール=0\n";
-	alias << "移動座標上に表示=0\n";
-	alias << "オブジェクトの長さを自動調節=0\n";
-	alias << "[Object.1]\n";
-	alias << "effect.name=標準描画\n";
-	alias << "X=0.00\n";
-	alias << "Y=0.00\n";
-	alias << "Z=0.00\n";
-	alias << "Group=1\n";
-	alias << "中心X=0.00\n";
-	alias << "中心Y=0.00\n";
-	alias << "中心Z=0.00\n";
-	alias << "X軸回転=0.00\n";
-	alias << "Y軸回転=0.00\n";
-	alias << "Z軸回転=0.00\n";
-	alias << "拡大率=100.000\n";
-	alias << "縦横比=0.000\n";
-	alias << "透明度=0.00\n";
-	alias << "合成モード=通常\n";
+	return alias.str();
+}
+//---------------------------------------------------------------------
+//	Alias generation (Variable Font Object.object baseline)
+//---------------------------------------------------------------------
+std::string BuildVFOAliasFromSelection(const FontItem &item, const std::wstring &text, int frameLength)
+{
+	if (frameLength <= 0)
+		frameLength = kFallbackAliasFrames;
+	std::wstring fontValue = item.isSystemFont ? item.displayName : item.filePath;
+	std::ostringstream alias;
+	alias << "[Object]\n";
+	alias << "frame=0," << frameLength << "\n";
+	alias << "[Object.0]\n";
+	alias << "effect.name=Variable Font Object\n";
+	alias << "フォントファイル=" << (item.isSystemFont ? "" : ToUtf8(fontValue)) << "\n";
+	alias << "フォント=" << (item.isSystemFont ? ToUtf8(fontValue) : "") << "\n";
 	return alias.str();
 }
 
@@ -1167,6 +1098,9 @@ bool CreateVariableFontObject(UINT flags)
 	{
 	case IDC_ADD_VF_BUTTON:
 		alias = BuildVFAliasFromSelection(item, g_sampleText, frameLength);
+		break;
+	case IDC_ADD_VFO_BUTTON:
+		alias = BuildVFOAliasFromSelection(item, g_sampleText, frameLength);
 		break;
 	case IDC_ADD_BUTTON:
 		alias = BuildAliasFromSelection(item, g_sampleText, frameLength);
@@ -1272,11 +1206,15 @@ bool SetFontTextObject()
 				ok |= !!edit->set_object_item_value(object, L"テキスト", L"フォント", ctx->sysNameUtf8.c_str());
 				ok |= !!edit->set_object_item_value(object, L"Variable Font Text", L"フォント", ctx->sysNameUtf8.c_str());
 				ok |= !!edit->set_object_item_value(object, L"Variable Font Text", L"フォントファイル", "");
+				ok |= !!edit->set_object_item_value(object, L"Variable Font Object", L"フォント", ctx->sysNameUtf8.c_str());
+				ok |= !!edit->set_object_item_value(object, L"Variable Font Object", L"フォントファイル", "");
 			}
 			else
 			{
 				ok |= !!edit->set_object_item_value(object, L"Variable Font Text", L"フォント", "");
 				ok |= !!edit->set_object_item_value(object, L"Variable Font Text", L"フォントファイル", ctx->filePathUtf8.c_str());
+				ok |= !!edit->set_object_item_value(object, L"Variable Font Object", L"フォント", "");
+				ok |= !!edit->set_object_item_value(object, L"Variable Font Object", L"フォントファイル", ctx->filePathUtf8.c_str());
 			}
 			return ok;
 		};
@@ -1335,16 +1273,92 @@ void UpdateLayout(HWND hwnd)
 
 	int actionY = y;
 	int actionRight = w - margin;
-	int textBtnW = 70;
-	int vfBtnW = 120;
 	int actionGap = 8;
-	int labelW = std::max(80, actionRight - margin - (vfBtnW + actionGap + textBtnW + actionGap));
+	const int labelMinW = 80;
+	int textBtnW = g_hwndAddText ? 70 : 0;
+	int vfBtnW = g_hwndAddVF ? 120 : 0;
+	int vfoBtnW = g_hwndAddVFO ? 120 : 0;
+	const int textBtnMinW = g_hwndAddText ? 56 : 0;
+	const int vfBtnMinW = g_hwndAddVF ? 88 : 0;
+	const int vfoBtnMinW = g_hwndAddVFO ? 88 : 0;
+
+	int buttonCount = 0;
+	if (g_hwndAddVFO)
+		buttonCount++;
+	if (g_hwndAddVF)
+		buttonCount++;
+	if (g_hwndAddText)
+		buttonCount++;
+
+	const int gaps = (buttonCount > 0) ? (buttonCount - 1) : 0;
+	const int availableButtonsW = std::max(0, actionRight - margin - labelMinW);
+	const int prefButtonsW = vfoBtnW + vfBtnW + textBtnW + gaps * actionGap;
+	const int minButtonsW = vfoBtnMinW + vfBtnMinW + textBtnMinW + gaps * actionGap;
+
+	if (prefButtonsW > availableButtonsW)
+	{
+		if (availableButtonsW <= minButtonsW)
+		{
+			vfoBtnW = vfoBtnMinW;
+			vfBtnW = vfBtnMinW;
+			textBtnW = textBtnMinW;
+		}
+		else
+		{
+			int needShrink = prefButtonsW - availableButtonsW;
+			while (needShrink > 0)
+			{
+				bool shrunk = false;
+				if (vfoBtnW > vfoBtnMinW)
+				{
+					vfoBtnW--;
+					needShrink--;
+					shrunk = true;
+					if (needShrink <= 0)
+						break;
+				}
+				if (vfBtnW > vfBtnMinW)
+				{
+					vfBtnW--;
+					needShrink--;
+					shrunk = true;
+					if (needShrink <= 0)
+						break;
+				}
+				if (textBtnW > textBtnMinW)
+				{
+					textBtnW--;
+					needShrink--;
+					shrunk = true;
+				}
+				if (!shrunk)
+					break;
+			}
+		}
+	}
+
+	int buttonX = actionRight;
+	if (g_hwndAddText)
+	{
+		buttonX -= textBtnW;
+		MoveWindow(g_hwndAddText, buttonX, actionY - 2, textBtnW, buttonHeight, TRUE);
+		buttonX -= actionGap;
+	}
+	if (g_hwndAddVF)
+	{
+		buttonX -= vfBtnW;
+		MoveWindow(g_hwndAddVF, buttonX, actionY - 2, vfBtnW, buttonHeight, TRUE);
+		buttonX -= actionGap;
+	}
+	if (g_hwndAddVFO)
+	{
+		buttonX -= vfoBtnW;
+		MoveWindow(g_hwndAddVFO, buttonX, actionY - 2, vfoBtnW, buttonHeight, TRUE);
+	}
+
+	int labelW = std::max(labelMinW, buttonX - margin - actionGap);
 	if (g_hwndTypeLabel)
 		MoveWindow(g_hwndTypeLabel, margin, actionY, labelW, typeHeight, TRUE);
-	if (g_hwndAddText)
-		MoveWindow(g_hwndAddText, actionRight - textBtnW, actionY - 2, textBtnW, buttonHeight, TRUE);
-	if (g_hwndAddVF)
-		MoveWindow(g_hwndAddVF, actionRight - textBtnW - actionGap - vfBtnW, actionY - 2, vfBtnW, buttonHeight, TRUE);
 	y += typeHeight + detailGap;
 
 	int remaining = h - y - margin;
@@ -1404,6 +1418,8 @@ static void CreateControls(HWND hwnd)
 									  10, 70, 200, 24, hwnd, (HMENU)IDC_TYPE_LABEL, GetModuleHandleW(nullptr), nullptr);
 	g_hwndAddVF = CreateWindowExW(0, WC_BUTTON, L"VF＋", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
 								250, 70, 120, 28, hwnd, (HMENU)IDC_ADD_VF_BUTTON, GetModuleHandleW(nullptr), nullptr);
+	g_hwndAddVFO = CreateWindowExW(0, WC_BUTTON, L"VFO＋", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+								380, 70, 120, 28, hwnd, (HMENU)IDC_ADD_VFO_BUTTON, GetModuleHandleW(nullptr), nullptr);
 	g_hwndAddText = CreateWindowExW(0, WC_BUTTON, L"＋", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
 								500, 70, 70, 28, hwnd, (HMENU)IDC_ADD_BUTTON, GetModuleHandleW(nullptr), nullptr);
 	g_hwndAxisLabel = CreateWindowExW(WS_EX_CLIENTEDGE, WC_STATIC, L"", WS_VISIBLE | WS_CHILD | SS_LEFT,
@@ -1558,6 +1574,10 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 				CreateVariableFontObject(LOWORD(wparam));
 			return 0;
 		case IDC_ADD_BUTTON:
+			if (HIWORD(wparam) == BN_CLICKED)
+				CreateVariableFontObject(LOWORD(wparam));
+			return 0;
+		case IDC_ADD_VFO_BUTTON:
 			if (HIWORD(wparam) == BN_CLICKED)
 				CreateVariableFontObject(LOWORD(wparam));
 			return 0;
