@@ -35,6 +35,9 @@ pub(crate) struct Settings {
     pub sort: SortMode,
     pub sync_text: bool,
     pub sample: String,
+    pub preview_font_size: f32,
+    pub preview_text_color: [u8; 3],
+    pub preview_background_color: [u8; 3],
 }
 
 impl Default for Settings {
@@ -47,6 +50,9 @@ impl Default for Settings {
             sort: SortMode::FavoriteName,
             sync_text: true,
             sample: "あいうABC123".to_string(),
+            preview_font_size: 48.0,
+            preview_text_color: [0, 0, 0],
+            preview_background_color: [255, 255, 255],
         }
     }
 }
@@ -159,6 +165,8 @@ mod tests {
         assert_eq!(loaded.sort, SortMode::FavoriteName);
         assert!(loaded.sync_text);
         assert!(!loaded.move_local_fonts_with_favorites);
+        assert_eq!(loaded.preview_font_size, 48.0);
+        assert_eq!(loaded.preview_text_color, [0, 0, 0]);
     }
 
     #[test]

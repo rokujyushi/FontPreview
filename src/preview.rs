@@ -61,6 +61,7 @@ pub(crate) fn render(
     font: &FontItem,
     text: &str,
     background: [u8; 3],
+    text_color: [u8; 3],
     width: u32,
     height: u32,
     font_size: f32,
@@ -80,7 +81,7 @@ pub(crate) fn render(
             load_system_font(&dwrite, &font.family_name)?
         };
         let layout = create_layout(&dwrite, &resources, text, width, height, font_size)?;
-        draw(&d2d, &wic, &layout, background, width, height)
+        draw(&d2d, &wic, &layout, background, text_color, width, height)
     }
 }
 
@@ -159,6 +160,7 @@ unsafe fn draw(
     wic: &IWICImagingFactory,
     layout: &IDWriteTextLayout,
     background: [u8; 3],
+    text_color: [u8; 3],
     width: u32,
     height: u32,
 ) -> Result<PreviewImage> {
@@ -186,9 +188,9 @@ unsafe fn draw(
     let brush = unsafe {
         target.CreateSolidColorBrush(
             &D2D1_COLOR_F {
-                r: 0.0,
-                g: 0.0,
-                b: 0.0,
+                r: f32::from(text_color[0]) / 255.0,
+                g: f32::from(text_color[1]) / 255.0,
+                b: f32::from(text_color[2]) / 255.0,
                 a: 1.0,
             },
             None,

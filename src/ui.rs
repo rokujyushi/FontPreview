@@ -28,7 +28,6 @@ pub(crate) struct FontPreviewApp {
     settings_path: PathBuf,
     first_team_dir: PathBuf,
     library_dir: PathBuf,
-    background: egui::Color32,
     preview: Option<egui::TextureHandle>,
     preview_dirty: bool,
     status: Option<String>,
@@ -66,7 +65,6 @@ impl FontPreviewApp {
             settings_path,
             first_team_dir,
             library_dir,
-            background: egui::Color32::WHITE,
             preview: None,
             preview_dirty: true,
             status: catalog_status.or(settings_status),
@@ -168,8 +166,15 @@ impl FontPreviewApp {
         } else {
             &self.settings.sample
         };
-        let [r, g, b, _] = self.background.to_array();
-        match crate::preview::render(font, text, [r, g, b], 640, 220, 48.0) {
+        match crate::preview::render(
+            font,
+            text,
+            self.settings.preview_background_color,
+            self.settings.preview_text_color,
+            640,
+            220,
+            self.settings.preview_font_size,
+        ) {
             Ok(image) => {
                 let image = egui::ColorImage::from_rgba_unmultiplied(
                     [image.width as usize, image.height as usize],
@@ -507,18 +512,59 @@ impl eframe::App for FontPreviewApp {
                             self.settings.sync_text = false;
                             self.set_sample(sample);
                         }
+                        let mut preview_settings_changed = false;
                         ui.horizontal(|ui| {
-                            ui.label("背景");
+                            ui.label("サイズ");
+                            preview_settings_changed |= ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut self.settings.preview_font_size,
+                                        8.0..=160.0,
+                                    )
+                                    .suffix(" px"),
+                                )
+                                .changed();
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("文字色");
+                            let mut text_color = egui::Color32::from_rgb(
+                                self.settings.preview_text_color[0],
+                                self.settings.preview_text_color[1],
+                                self.settings.preview_text_color[2],
+                            );
                             if egui::color_picker::color_edit_button_srgba(
                                 ui,
-                                &mut self.background,
+                                &mut text_color,
                                 egui::color_picker::Alpha::Opaque,
                             )
                             .changed()
                             {
-                                self.preview_dirty = true;
+                                self.settings.preview_text_color =
+                                    text_color.to_array()[..3].try_into().unwrap();
+                                preview_settings_changed = true;
+                            }
+                            ui.label("背景");
+                            let mut background_color = egui::Color32::from_rgb(
+                                self.settings.preview_background_color[0],
+                                self.settings.preview_background_color[1],
+                                self.settings.preview_background_color[2],
+                            );
+                            if egui::color_picker::color_edit_button_srgba(
+                                ui,
+                                &mut background_color,
+                                egui::color_picker::Alpha::Opaque,
+                            )
+                            .changed()
+                            {
+                                self.settings.preview_background_color =
+                                    background_color.to_array()[..3].try_into().unwrap();
+                                preview_settings_changed = true;
                             }
                         });
+                        if preview_settings_changed {
+                            self.preview_dirty = true;
+                            self.save_settings();
+                        }
                         self.update_preview(ui.ctx());
                         if let Some(texture) = &self.preview {
                             let size = texture.size_vec2();
