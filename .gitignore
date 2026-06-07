@@ -3,3 +3,6 @@ AxisMapping.h
 PresetIO.h
 bin/*
 obj/*
+target/
+.aviutl2-cli/
+release/

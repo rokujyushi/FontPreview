@@ -1,0 +1,42 @@
+[project]
+id = "rokujyushi.font-preview"
+name = "Font Preview"
+version = "4.0.0"
+
+[build_group]
+debug = ["cargo build"]
+release = ["cargo build --release"]
+
+[development]
+aviutl2_version = "latest"
+
+[preview]
+aviutl2_version = "latest"
+install_dir = "./.aviutl2-cli/preview"
+profile = "release"
+
+[release]
+output_dir = "release"
+package_id = "rokujyushi.font-preview"
+package_name = "Font Preview v{version}"
+zip_name = "FontPreview-v{version}"
+profile = "release"
+
+[artifacts.plugin]
+destination = "Plugin/FontPreview/FontPreview.aux2"
+build = { group = "debug" }
+
+[artifacts.plugin.profiles.debug]
+source = "target/debug/FontPreview.dll"
+
+[artifacts.plugin.profiles.release]
+source = "target/release/FontPreview.dll"
+build = { group = "release" }
+
+[artifacts.readme]
+source = "README.md"
+destination = "Plugin/FontPreview/README.md"
+
+[artifacts.license]
+source = "LICENSE"
+destination = "Plugin/FontPreview/LICENSE"
