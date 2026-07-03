@@ -27,6 +27,7 @@ impl aviutl2::generic::GenericPlugin for FontPreviewPlugin {
             } else {
                 tracing::Level::INFO
             })
+            .with_ansi(false)
             .event_format(aviutl2::logger::AviUtl2Formatter)
             .with_writer(aviutl2::logger::AviUtl2LogWriter)
             .try_init();
@@ -45,20 +46,26 @@ impl aviutl2::generic::GenericPlugin for FontPreviewPlugin {
     fn plugin_info(&self) -> aviutl2::generic::GenericPluginTable {
         aviutl2::generic::GenericPluginTable {
             name: "Font Preview".to_string(),
-            information: format!("Font Preview {} (Rust)", env!("CARGO_PKG_VERSION")),
+            information: format!("Font Preview {} (Rust) by 黒猫大福", env!("CARGO_PKG_VERSION")),
         }
     }
 
     fn register(&mut self, host: &mut aviutl2::generic::HostAppHandle) {
+        tracing::info!("FontPreview register start");
         EDIT_HANDLE.init(host.create_edit_handle());
+        tracing::info!("FontPreview edit handle initialized");
         match self.window.handle() {
             Ok(handle) => {
+                tracing::info!("FontPreview eframe window handle acquired");
                 if let Err(error) = host.register_window_client("Font Preview", &handle) {
                     tracing::error!("Font Previewウィンドウの登録に失敗しました: {error}");
+                } else {
+                    tracing::info!("FontPreview window client registered");
                 }
             }
             Err(error) => tracing::error!("Font Previewウィンドウを取得できませんでした: {error}"),
         }
+        tracing::info!("FontPreview register finish");
     }
 }
 

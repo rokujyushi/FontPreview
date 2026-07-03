@@ -18,6 +18,12 @@ pub(crate) fn create_object(
     if !handle.is_ready() {
         bail!("AviUtl2の編集機能を初期化中です");
     }
+    let started = std::time::Instant::now();
+    tracing::info!(
+        font = %font.display_name,
+        text_len = text.len(),
+        "FontPreview create object start"
+    );
     let info = handle.get_edit_info();
     let alias = alias::build(
         font,
@@ -31,6 +37,10 @@ pub(crate) fn create_object(
             Ok::<_, aviutl2::generic::EditSectionError>(())
         })
         .context("編集セクションを開けませんでした")??;
+    tracing::info!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "FontPreview create object finish"
+    );
     Ok(())
 }
 
@@ -38,6 +48,8 @@ pub(crate) fn apply_to_selection(handle: &GlobalEditHandle, font: &FontItem) -> 
     if !handle.is_ready() {
         bail!("AviUtl2の編集機能を初期化中です");
     }
+    let started = std::time::Instant::now();
+    tracing::info!(font = %font.display_name, "FontPreview apply to selection start");
     let family = font.family_name.clone();
     let file = font.local_path().to_string();
     let system = font.is_system();
@@ -83,6 +95,11 @@ pub(crate) fn apply_to_selection(handle: &GlobalEditHandle, font: &FontItem) -> 
     if count == 0 {
         bail!("更新できるオブジェクトが選択されていません");
     }
+    tracing::info!(
+        count,
+        elapsed_ms = started.elapsed().as_millis(),
+        "FontPreview apply to selection finish"
+    );
     Ok(count)
 }
 
@@ -90,7 +107,9 @@ pub(crate) fn selected_text(handle: &GlobalEditHandle) -> Result<Option<String>>
     if !handle.is_ready() {
         return Ok(None);
     }
-    handle
+    let started = std::time::Instant::now();
+    tracing::info!("FontPreview selected_text edit section start");
+    let result = handle
         .call_read_section(|edit| {
             let object = edit
                 .get_focused_object()?
@@ -105,7 +124,17 @@ pub(crate) fn selected_text(handle: &GlobalEditHandle) -> Result<Option<String>>
             }))
         })
         .context("編集セクションを参照できませんでした")?
-        .context("テキスト取得に失敗しました")
+        .context("テキスト取得に失敗しました");
+    tracing::info!(
+        elapsed_ms = started.elapsed().as_millis(),
+        has_text = result
+            .as_ref()
+            .ok()
+            .and_then(|text| text.as_ref())
+            .is_some(),
+        "FontPreview selected_text edit section finish"
+    );
+    result
 }
 
 pub(crate) fn move_local_font(

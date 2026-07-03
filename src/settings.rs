@@ -48,7 +48,7 @@ impl Default for Settings {
             move_local_fonts_with_favorites: false,
             filter: FilterMode::All,
             sort: SortMode::FavoriteName,
-            sync_text: true,
+            sync_text: false,
             sample: "あいうABC123".to_string(),
             preview_font_size: 48.0,
             preview_text_color: [0, 0, 0],
@@ -60,7 +60,7 @@ impl Default for Settings {
 impl Settings {
     pub fn load(path: &Path) -> (Self, Option<String>) {
         match std::fs::read_to_string(path) {
-            Ok(content) => match serde_json::from_str(&content) {
+            Ok(content) => match serde_json::from_str::<Self>(&content) {
                 Ok(settings) => (settings, None),
                 Err(error) => (
                     Self::default(),
@@ -163,7 +163,7 @@ mod tests {
         let value = serde_json::to_string(&Settings::default()).unwrap();
         let loaded: Settings = serde_json::from_str(&value).unwrap();
         assert_eq!(loaded.sort, SortMode::FavoriteName);
-        assert!(loaded.sync_text);
+        assert!(!loaded.sync_text);
         assert!(!loaded.move_local_fonts_with_favorites);
         assert_eq!(loaded.preview_font_size, 48.0);
         assert_eq!(loaded.preview_text_color, [0, 0, 0]);
@@ -178,5 +178,25 @@ mod tests {
         let mut fonts = vec![FontItem::new_system("Known".to_string(), Vec::new())];
         settings.apply_favorites(&mut fonts);
         assert!(!fonts[0].favorite);
+    }
+
+    #[test]
+    fn sync_text_is_loaded_from_settings_file() {
+        let dir =
+            std::env::temp_dir().join(format!("font-preview-settings-{}", std::process::id()));
+        let path = dir.join("settings.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            r#"{
+  "sync_text": true,
+  "sample": "test"
+}"#,
+        )
+        .unwrap();
+        let (settings, error) = Settings::load(&path);
+        assert!(error.is_none());
+        assert!(settings.sync_text);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

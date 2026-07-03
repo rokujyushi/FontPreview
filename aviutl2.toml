@@ -1,7 +1,7 @@
 [project]
 id = "rokujyushi.font-preview"
 name = "Font Preview"
-version = "4.0.0"
+version = "4.0.1"
 
 [build_group]
 debug = ["cargo build"]

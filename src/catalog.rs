@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -125,6 +126,12 @@ impl FontItem {
 }
 
 pub(crate) fn enumerate(first_team_dir: &Path, library_dir: &Path) -> Result<Vec<FontItem>> {
+    let started = Instant::now();
+    tracing::info!(
+        first_team_dir = %first_team_dir.display(),
+        library_dir = %library_dir.display(),
+        "FontPreview catalog enumerate start"
+    );
     unsafe {
         let factory: IDWriteFactory7 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
             .context("DirectWrite factory creation failed")?;
@@ -142,11 +149,18 @@ pub(crate) fn enumerate(first_team_dir: &Path, library_dir: &Path) -> Result<Vec
             FontSource::Library,
             &mut paths,
         ));
+        tracing::info!(
+            count = fonts.len(),
+            elapsed_ms = started.elapsed().as_millis(),
+            "FontPreview catalog enumerate finish"
+        );
         Ok(fonts)
     }
 }
 
 unsafe fn system_fonts(factory: &IDWriteFactory7) -> Result<Vec<FontItem>> {
+    let started = Instant::now();
+    tracing::info!("FontPreview system font enumerate start");
     let base: IDWriteFactory = factory.cast()?;
     let mut collection = None;
     unsafe { base.GetSystemFontCollection(&mut collection, false)? };
@@ -176,6 +190,11 @@ unsafe fn system_fonts(factory: &IDWriteFactory7) -> Result<Vec<FontItem>> {
         };
         fonts.push(FontItem::new_system(name, axes));
     }
+    tracing::info!(
+        count = fonts.len(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "FontPreview system font enumerate finish"
+    );
     Ok(fonts)
 }
 
@@ -185,10 +204,21 @@ unsafe fn local_fonts(
     source: FontSource,
     seen_paths: &mut HashSet<PathBuf>,
 ) -> Vec<FontItem> {
+    let started = Instant::now();
+    tracing::info!(
+        source = source.label(),
+        directory = %directory.display(),
+        "FontPreview local font enumerate start"
+    );
     let Ok(entries) = std::fs::read_dir(directory) else {
+        tracing::info!(
+            source = source.label(),
+            directory = %directory.display(),
+            "FontPreview local font directory missing or unreadable"
+        );
         return Vec::new();
     };
-    entries
+    let fonts = entries
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
@@ -211,7 +241,14 @@ unsafe fn local_fonts(
                 .ok()?;
             Some(FontItem::new_local(family, path, source, axes))
         })
-        .collect()
+        .collect::<Vec<_>>();
+    tracing::info!(
+        source = source.label(),
+        count = fonts.len(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "FontPreview local font enumerate finish"
+    );
+    fonts
 }
 
 unsafe fn local_font_info(

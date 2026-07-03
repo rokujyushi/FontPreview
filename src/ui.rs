@@ -2,7 +2,13 @@ use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use aviutl2::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use aviutl2_eframe::{AviUtl2EframeHandle, eframe, egui};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetLastActivePopup, IsChild, IsWindowVisible,
+};
 
 use crate::EDIT_HANDLE;
 use crate::actions;
@@ -11,6 +17,7 @@ use crate::catalog::{FontId, FontItem, FontSource, enumerate};
 use crate::settings::{FilterMode, Settings, SortMode, settings_path};
 
 const TEXT_SYNC_INTERVAL: Duration = Duration::from_millis(500);
+const TEXT_SYNC_SAFE_FOREGROUND_DELAY: Duration = Duration::from_millis(300);
 
 struct PendingMove {
     font_id: FontId,
@@ -33,6 +40,7 @@ pub(crate) struct FontPreviewApp {
     status: Option<String>,
     pending_move: Option<PendingMove>,
     last_text_sync: Instant,
+    text_sync_safe_since: Option<Instant>,
 }
 
 impl FontPreviewApp {
@@ -41,6 +49,8 @@ impl FontPreviewApp {
         window_handle: AviUtl2EframeHandle,
         app_data: PathBuf,
     ) -> Self {
+        let started = Instant::now();
+        tracing::info!(app_data = %app_data.display(), "FontPreview app init start");
         cc.egui_ctx.all_styles_mut(|style| {
             style.visuals = aviutl2_eframe::aviutl2_visuals();
         });
@@ -50,9 +60,13 @@ impl FontPreviewApp {
         let library_dir = app_data.join("FontLibrary");
         let settings_path = settings_path(&app_data);
         let (settings, settings_status) = Settings::load(&settings_path);
+        tracing::info!(path = %settings_path.display(), "FontPreview settings loaded");
         let (mut fonts, catalog_status) = match enumerate(&first_team_dir, &library_dir) {
             Ok(fonts) => (fonts, None),
-            Err(error) => (Vec::new(), Some(format!("フォント列挙エラー: {error:#}"))),
+            Err(error) => {
+                tracing::error!(error = %format!("{error:#}"), "FontPreview catalog enumerate failed");
+                (Vec::new(), Some(format!("フォント列挙エラー: {error:#}")))
+            }
         };
         settings.apply_favorites(&mut fonts);
         let mut app = Self {
@@ -70,8 +84,14 @@ impl FontPreviewApp {
             status: catalog_status.or(settings_status),
             pending_move: None,
             last_text_sync: Instant::now() - TEXT_SYNC_INTERVAL,
+            text_sync_safe_since: None,
         };
         app.rebuild_filter();
+        tracing::info!(
+            fonts = app.fonts.len(),
+            elapsed_ms = started.elapsed().as_millis(),
+            "FontPreview app init finish"
+        );
         app
     }
 
@@ -101,6 +121,8 @@ impl FontPreviewApp {
     }
 
     fn refresh_catalog(&mut self) {
+        let started = Instant::now();
+        tracing::info!("FontPreview refresh catalog start");
         let selected_id = self.selected_font().map(|font| font.id.clone());
         match enumerate(&self.first_team_dir, &self.library_dir) {
             Ok(mut fonts) => {
@@ -110,8 +132,20 @@ impl FontPreviewApp {
                     selected_id.and_then(|id| self.fonts.iter().position(|font| font.id == id));
                 self.rebuild_filter();
                 self.status = Some(format!("{}件のフォントを読み込みました", self.fonts.len()));
+                tracing::info!(
+                    fonts = self.fonts.len(),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "FontPreview refresh catalog finish"
+                );
             }
-            Err(error) => self.status = Some(format!("再読み込みエラー: {error:#}")),
+            Err(error) => {
+                tracing::error!(
+                    error = %format!("{error:#}"),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "FontPreview refresh catalog failed"
+                );
+                self.status = Some(format!("再読み込みエラー: {error:#}"));
+            }
         }
     }
 
@@ -143,12 +177,43 @@ impl FontPreviewApp {
             return;
         }
         ctx.request_repaint_after(TEXT_SYNC_INTERVAL);
+        if !should_poll_selected_text(&self.window_handle) {
+            self.text_sync_safe_since = None;
+            return;
+        }
+        let safe_since = self.text_sync_safe_since.get_or_insert_with(Instant::now);
+        if safe_since.elapsed() < TEXT_SYNC_SAFE_FOREGROUND_DELAY {
+            ctx.request_repaint_after(TEXT_SYNC_SAFE_FOREGROUND_DELAY);
+            return;
+        }
         if self.last_text_sync.elapsed() < TEXT_SYNC_INTERVAL {
             return;
         }
         self.last_text_sync = Instant::now();
-        if let Ok(Some(text)) = actions::selected_text(&EDIT_HANDLE) {
-            self.set_sample(text);
+        let started = Instant::now();
+        tracing::info!("FontPreview selected text sync read start");
+        match actions::selected_text(&EDIT_HANDLE) {
+            Ok(Some(text)) => {
+                tracing::info!(
+                    len = text.len(),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "FontPreview selected text sync read finish"
+                );
+                self.set_sample(text);
+            }
+            Ok(None) => {
+                tracing::info!(
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "FontPreview selected text sync read empty"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %format!("{error:#}"),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "FontPreview selected text sync read failed"
+                );
+            }
         }
     }
 
@@ -166,6 +231,13 @@ impl FontPreviewApp {
         } else {
             &self.settings.sample
         };
+        let started = Instant::now();
+        tracing::info!(
+            font = %font.display_name,
+            text_len = text.len(),
+            font_size = self.settings.preview_font_size,
+            "FontPreview detail preview render start"
+        );
         match crate::preview::render(
             font,
             text,
@@ -182,10 +254,19 @@ impl FontPreviewApp {
                 );
                 self.preview =
                     Some(ctx.load_texture("font-preview", image, egui::TextureOptions::LINEAR));
+                tracing::info!(
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "FontPreview detail preview render finish"
+                );
             }
             Err(error) => {
                 self.preview = None;
                 self.status = Some(format!("プレビューエラー: {error:#}"));
+                tracing::error!(
+                    error = %format!("{error:#}"),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "FontPreview detail preview render failed"
+                );
             }
         }
     }
@@ -623,6 +704,49 @@ impl eframe::App for FontPreviewApp {
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
         visuals.window_fill.to_normalized_gamma_f32()
     }
+}
+
+fn should_poll_selected_text(window_handle: &AviUtl2EframeHandle) -> bool {
+    let foreground = unsafe { GetForegroundWindow() };
+    if foreground.is_invalid() {
+        return false;
+    }
+
+    let host = EDIT_HANDLE
+        .get_host_app_window_raw()
+        .map(|handle| HWND(handle.hwnd.get() as *mut std::ffi::c_void));
+    if hwnd_matches(host, foreground) {
+        return true;
+    }
+
+    let preview = window_handle
+        .window_handle()
+        .ok()
+        .and_then(|handle| match handle.as_raw() {
+            RawWindowHandle::Win32(handle) => {
+                Some(HWND(handle.hwnd.get() as *mut std::ffi::c_void))
+            }
+            _ => None,
+        });
+    hwnd_matches(preview, foreground)
+}
+
+fn hwnd_matches(parent: Option<HWND>, foreground: HWND) -> bool {
+    let Some(parent) = parent else {
+        return false;
+    };
+    if !unsafe { IsWindowEnabled(parent).as_bool() } {
+        return false;
+    }
+    if has_active_popup(parent) {
+        return false;
+    }
+    parent == foreground || unsafe { IsChild(parent, foreground).as_bool() }
+}
+
+fn has_active_popup(owner: HWND) -> bool {
+    let popup = unsafe { GetLastActivePopup(owner) };
+    popup != owner && !popup.is_invalid() && unsafe { IsWindowVisible(popup).as_bool() }
 }
 
 fn filter_matches(font: &FontItem, filter: FilterMode) -> bool {
