@@ -1,23 +1,15 @@
 use std::cmp::Ordering;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Instant;
 
-use aviutl2::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use aviutl2_eframe::{AviUtl2EframeHandle, eframe, egui};
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetLastActivePopup, IsChild, IsWindowVisible,
-};
 
-use crate::EDIT_HANDLE;
 use crate::actions;
 use crate::alias::ObjectKind;
 use crate::catalog::{FontId, FontItem, FontSource, enumerate};
 use crate::settings::{FilterMode, Settings, SortMode, settings_path};
-
-const TEXT_SYNC_INTERVAL: Duration = Duration::from_millis(500);
-const TEXT_SYNC_SAFE_FOREGROUND_DELAY: Duration = Duration::from_millis(300);
+use crate::{FontDropOutcome, SelectedTextResult, SelectedTextSnapshot, SharedEditState};
 
 struct PendingMove {
     font_id: FontId,
@@ -27,6 +19,7 @@ struct PendingMove {
 
 pub(crate) struct FontPreviewApp {
     window_handle: AviUtl2EframeHandle,
+    shared_edit: Arc<SharedEditState>,
     fonts: Vec<FontItem>,
     filtered: Vec<usize>,
     selected: Option<usize>,
@@ -39,8 +32,8 @@ pub(crate) struct FontPreviewApp {
     preview_dirty: bool,
     status: Option<String>,
     pending_move: Option<PendingMove>,
-    last_text_sync: Instant,
-    text_sync_safe_since: Option<Instant>,
+    selected_text_revision: u64,
+    font_drop_revision: u64,
 }
 
 impl FontPreviewApp {
@@ -48,19 +41,21 @@ impl FontPreviewApp {
         cc: &eframe::CreationContext<'_>,
         window_handle: AviUtl2EframeHandle,
         app_data: PathBuf,
+        shared_edit: Arc<SharedEditState>,
     ) -> Self {
         let started = Instant::now();
-        tracing::info!(app_data = %app_data.display(), "FontPreview app init start");
+        tracing::debug!(app_data = %app_data.display(), "FontPreview app init start");
         cc.egui_ctx.all_styles_mut(|style| {
             style.visuals = aviutl2_eframe::aviutl2_visuals();
         });
         cc.egui_ctx.set_fonts(aviutl2_eframe::aviutl2_fonts());
+        shared_edit.init_egui_ctx(cc.egui_ctx.clone());
 
         let first_team_dir = app_data.join("Font");
         let library_dir = app_data.join("FontLibrary");
         let settings_path = settings_path(&app_data);
         let (settings, settings_status) = Settings::load(&settings_path);
-        tracing::info!(path = %settings_path.display(), "FontPreview settings loaded");
+        tracing::debug!(path = %settings_path.display(), "FontPreview settings loaded");
         let (mut fonts, catalog_status) = match enumerate(&first_team_dir, &library_dir) {
             Ok(fonts) => (fonts, None),
             Err(error) => {
@@ -71,6 +66,7 @@ impl FontPreviewApp {
         settings.apply_favorites(&mut fonts);
         let mut app = Self {
             window_handle,
+            shared_edit,
             fonts,
             filtered: Vec::new(),
             selected: None,
@@ -83,11 +79,11 @@ impl FontPreviewApp {
             preview_dirty: true,
             status: catalog_status.or(settings_status),
             pending_move: None,
-            last_text_sync: Instant::now() - TEXT_SYNC_INTERVAL,
-            text_sync_safe_since: None,
+            selected_text_revision: 0,
+            font_drop_revision: 0,
         };
         app.rebuild_filter();
-        tracing::info!(
+        tracing::debug!(
             fonts = app.fonts.len(),
             elapsed_ms = started.elapsed().as_millis(),
             "FontPreview app init finish"
@@ -122,7 +118,7 @@ impl FontPreviewApp {
 
     fn refresh_catalog(&mut self) {
         let started = Instant::now();
-        tracing::info!("FontPreview refresh catalog start");
+        tracing::debug!("FontPreview refresh catalog start");
         let selected_id = self.selected_font().map(|font| font.id.clone());
         match enumerate(&self.first_team_dir, &self.library_dir) {
             Ok(mut fonts) => {
@@ -132,7 +128,7 @@ impl FontPreviewApp {
                     selected_id.and_then(|id| self.fonts.iter().position(|font| font.id == id));
                 self.rebuild_filter();
                 self.status = Some(format!("{}件のフォントを読み込みました", self.fonts.len()));
-                tracing::info!(
+                tracing::debug!(
                     fonts = self.fonts.len(),
                     elapsed_ms = started.elapsed().as_millis(),
                     "FontPreview refresh catalog finish"
@@ -168,52 +164,52 @@ impl FontPreviewApp {
         self.save_settings();
     }
 
-    fn sync_selected_text(&mut self, ctx: &egui::Context) {
-        if !self.settings.sync_text {
-            return;
-        }
-        if !EDIT_HANDLE.is_ready() {
-            ctx.request_repaint_after(Duration::from_millis(100));
-            return;
-        }
-        ctx.request_repaint_after(TEXT_SYNC_INTERVAL);
-        if !should_poll_selected_text(&self.window_handle) {
-            self.text_sync_safe_since = None;
-            return;
-        }
-        let safe_since = self.text_sync_safe_since.get_or_insert_with(Instant::now);
-        if safe_since.elapsed() < TEXT_SYNC_SAFE_FOREGROUND_DELAY {
-            ctx.request_repaint_after(TEXT_SYNC_SAFE_FOREGROUND_DELAY);
-            return;
-        }
-        if self.last_text_sync.elapsed() < TEXT_SYNC_INTERVAL {
-            return;
-        }
-        self.last_text_sync = Instant::now();
-        let started = Instant::now();
-        tracing::info!("FontPreview selected text sync read start");
-        match actions::selected_text(&EDIT_HANDLE) {
-            Ok(Some(text)) => {
-                tracing::info!(
-                    len = text.len(),
-                    elapsed_ms = started.elapsed().as_millis(),
-                    "FontPreview selected text sync read finish"
-                );
-                self.set_sample(text);
-            }
-            Ok(None) => {
-                tracing::info!(
-                    elapsed_ms = started.elapsed().as_millis(),
-                    "FontPreview selected text sync read empty"
-                );
-            }
-            Err(error) => {
+    fn sync_selected_text(&mut self) {
+        let snapshot = self.shared_edit.selected_text_snapshot();
+        let previous_revision = self.selected_text_revision;
+        let Some(text) = synced_sample(
+            self.settings.sync_text,
+            &mut self.selected_text_revision,
+            &snapshot,
+        ) else {
+            if self.selected_text_revision != previous_revision
+                && let SelectedTextResult::Error(error) = &snapshot.result
+            {
                 tracing::warn!(
-                    error = %format!("{error:#}"),
-                    elapsed_ms = started.elapsed().as_millis(),
-                    "FontPreview selected text sync read failed"
+                    revision = snapshot.revision,
+                    error,
+                    "FontPreview selected text snapshot contains an error"
                 );
             }
+            return;
+        };
+        tracing::debug!(
+            revision = snapshot.revision,
+            len = text.len(),
+            "FontPreview selected text snapshot applied"
+        );
+        self.set_sample(text);
+    }
+
+    fn process_font_drop(&mut self) {
+        let snapshot = self.shared_edit.font_drop_snapshot();
+        if snapshot.revision == 0 || snapshot.revision == self.font_drop_revision {
+            return;
+        }
+        self.font_drop_revision = snapshot.revision;
+        match snapshot.outcome {
+            Some(FontDropOutcome::Imported(path)) => {
+                self.refresh_catalog();
+                self.status = Some(format!("フォントを追加しました: {path}"));
+            }
+            Some(FontDropOutcome::AlreadyPresent(path)) => {
+                self.refresh_catalog();
+                self.status = Some(format!("フォントは既に追加されています: {path}"));
+            }
+            Some(FontDropOutcome::Error(error)) => {
+                self.status = Some(format!("フォント追加エラー: {error}"));
+            }
+            None => {}
         }
     }
 
@@ -232,7 +228,7 @@ impl FontPreviewApp {
             &self.settings.sample
         };
         let started = Instant::now();
-        tracing::info!(
+        tracing::debug!(
             font = %font.display_name,
             text_len = text.len(),
             font_size = self.settings.preview_font_size,
@@ -254,7 +250,7 @@ impl FontPreviewApp {
                 );
                 self.preview =
                     Some(ctx.load_texture("font-preview", image, egui::TextureOptions::LINEAR));
-                tracing::info!(
+                tracing::debug!(
                     elapsed_ms = started.elapsed().as_millis(),
                     "FontPreview detail preview render finish"
                 );
@@ -372,9 +368,10 @@ impl FontPreviewApp {
 
 impl eframe::App for FontPreviewApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.sync_selected_text(ui.ctx());
+        self.process_font_drop();
+        self.sync_selected_text();
 
-        egui::Panel::top("toolbar").show_inside(ui, |ui| {
+        egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 let title = ui.heading("Font Preview");
                 if title.interact(egui::Sense::click()).secondary_clicked() {
@@ -454,7 +451,7 @@ impl eframe::App for FontPreviewApp {
             }
         });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let list_width = (ui.available_width() * 0.48).clamp(260.0, 430.0);
             let content_height = ui.available_height();
             ui.horizontal(|ui| {
@@ -514,10 +511,19 @@ impl eframe::App for FontPreviewApp {
                                             if response.double_clicked() {
                                                 self.selected = Some(index);
                                                 self.status = Some(
-                                                    match actions::apply_to_selection(
-                                                        &EDIT_HANDLE,
-                                                        &font,
-                                                    ) {
+                                                    match self
+                                                        .shared_edit
+                                                        .edit_handle()
+                                                        .ok_or_else(|| {
+                                                            anyhow::anyhow!(
+                                                                "AviUtl2の編集機能を初期化中です"
+                                                            )
+                                                        })
+                                                        .and_then(|handle| {
+                                                            actions::apply_to_selection(
+                                                                handle, &font,
+                                                            )
+                                                        }) {
                                                         Ok(count) => format!(
                                                             "{count}個のオブジェクトを更新しました"
                                                         ),
@@ -575,7 +581,7 @@ impl eframe::App for FontPreviewApp {
                                 .clicked();
                             if sync_changed {
                                 self.settings.sync_text = true;
-                                self.last_text_sync = Instant::now() - TEXT_SYNC_INTERVAL;
+                                self.sync_selected_text();
                                 self.save_settings();
                             } else if fixed_changed {
                                 self.settings.sync_text = false;
@@ -655,37 +661,73 @@ impl eframe::App for FontPreviewApp {
                         ui.add_space(8.0);
                         ui.horizontal_wrapped(|ui| {
                             if ui.button("テキスト +").clicked() {
-                                self.action_result(actions::create_object(
-                                    &EDIT_HANDLE,
-                                    &font,
-                                    &self.settings.sample,
-                                    ObjectKind::Text,
-                                ));
+                                self.action_result(
+                                    self.shared_edit
+                                        .edit_handle()
+                                        .ok_or_else(|| {
+                                            anyhow::anyhow!("AviUtl2の編集機能を初期化中です")
+                                        })
+                                        .and_then(|handle| {
+                                            actions::create_object(
+                                                handle,
+                                                &font,
+                                                &self.settings.sample,
+                                                ObjectKind::Text,
+                                            )
+                                        }),
+                                );
                             }
                             if ui.button("VF +").clicked() {
-                                self.action_result(actions::create_object(
-                                    &EDIT_HANDLE,
-                                    &font,
-                                    &self.settings.sample,
-                                    ObjectKind::VariableFontText,
-                                ));
+                                self.action_result(
+                                    self.shared_edit
+                                        .edit_handle()
+                                        .ok_or_else(|| {
+                                            anyhow::anyhow!("AviUtl2の編集機能を初期化中です")
+                                        })
+                                        .and_then(|handle| {
+                                            actions::create_object(
+                                                handle,
+                                                &font,
+                                                &self.settings.sample,
+                                                ObjectKind::VariableFontText,
+                                            )
+                                        }),
+                                );
                             }
                             if ui.button("VFO +").clicked() {
-                                self.action_result(actions::create_object(
-                                    &EDIT_HANDLE,
-                                    &font,
-                                    &self.settings.sample,
-                                    ObjectKind::VariableFontObject,
-                                ));
+                                self.action_result(
+                                    self.shared_edit
+                                        .edit_handle()
+                                        .ok_or_else(|| {
+                                            anyhow::anyhow!("AviUtl2の編集機能を初期化中です")
+                                        })
+                                        .and_then(|handle| {
+                                            actions::create_object(
+                                                handle,
+                                                &font,
+                                                &self.settings.sample,
+                                                ObjectKind::VariableFontObject,
+                                            )
+                                        }),
+                                );
                             }
                             if ui.button("選択中に適用").clicked() {
-                                self.status =
-                                    Some(match actions::apply_to_selection(&EDIT_HANDLE, &font) {
+                                self.status = Some(
+                                    match self
+                                        .shared_edit
+                                        .edit_handle()
+                                        .ok_or_else(|| {
+                                            anyhow::anyhow!("AviUtl2の編集機能を初期化中です")
+                                        })
+                                        .and_then(|handle| {
+                                            actions::apply_to_selection(handle, &font)
+                                        }) {
                                         Ok(count) => {
                                             format!("{count}個のオブジェクトを更新しました")
                                         }
                                         Err(error) => format!("更新に失敗しました: {error:#}"),
-                                    });
+                                    },
+                                );
                             }
                         });
                     } else {
@@ -706,47 +748,22 @@ impl eframe::App for FontPreviewApp {
     }
 }
 
-fn should_poll_selected_text(window_handle: &AviUtl2EframeHandle) -> bool {
-    let foreground = unsafe { GetForegroundWindow() };
-    if foreground.is_invalid() {
-        return false;
+fn synced_sample(
+    sync_enabled: bool,
+    consumed_revision: &mut u64,
+    snapshot: &SelectedTextSnapshot,
+) -> Option<String> {
+    if !sync_enabled || snapshot.revision == 0 || snapshot.revision == *consumed_revision {
+        return None;
     }
-
-    let host = EDIT_HANDLE
-        .get_host_app_window_raw()
-        .map(|handle| HWND(handle.hwnd.get() as *mut std::ffi::c_void));
-    if hwnd_matches(host, foreground) {
-        return true;
+    *consumed_revision = snapshot.revision;
+    match &snapshot.result {
+        SelectedTextResult::Text(Some(text)) if !text.is_empty() => Some(text.clone()),
+        SelectedTextResult::NotReady
+        | SelectedTextResult::Text(None)
+        | SelectedTextResult::Text(Some(_))
+        | SelectedTextResult::Error(_) => None,
     }
-
-    let preview = window_handle
-        .window_handle()
-        .ok()
-        .and_then(|handle| match handle.as_raw() {
-            RawWindowHandle::Win32(handle) => {
-                Some(HWND(handle.hwnd.get() as *mut std::ffi::c_void))
-            }
-            _ => None,
-        });
-    hwnd_matches(preview, foreground)
-}
-
-fn hwnd_matches(parent: Option<HWND>, foreground: HWND) -> bool {
-    let Some(parent) = parent else {
-        return false;
-    };
-    if !unsafe { IsWindowEnabled(parent).as_bool() } {
-        return false;
-    }
-    if has_active_popup(parent) {
-        return false;
-    }
-    parent == foreground || unsafe { IsChild(parent, foreground).as_bool() }
-}
-
-fn has_active_popup(owner: HWND) -> bool {
-    let popup = unsafe { GetLastActivePopup(owner) };
-    popup != owner && !popup.is_invalid() && unsafe { IsWindowVisible(popup).as_bool() }
 }
 
 fn filter_matches(font: &FontItem, filter: FilterMode) -> bool {
@@ -839,5 +856,49 @@ mod tests {
             compare_fonts(&normal, &favorite, SortMode::FavoriteName),
             Ordering::Greater
         );
+    }
+
+    #[test]
+    fn disabled_sync_does_not_consume_snapshot() {
+        let snapshot = SelectedTextSnapshot {
+            revision: 4,
+            result: SelectedTextResult::Text(Some("event text".to_string())),
+        };
+        let mut consumed = 0;
+        assert_eq!(synced_sample(false, &mut consumed, &snapshot), None);
+        assert_eq!(consumed, 0);
+    }
+
+    #[test]
+    fn enabling_sync_consumes_latest_snapshot_once() {
+        let snapshot = SelectedTextSnapshot {
+            revision: 4,
+            result: SelectedTextResult::Text(Some("event text".to_string())),
+        };
+        let mut consumed = 0;
+        assert_eq!(
+            synced_sample(true, &mut consumed, &snapshot),
+            Some("event text".to_string())
+        );
+        assert_eq!(consumed, 4);
+        assert_eq!(synced_sample(true, &mut consumed, &snapshot), None);
+    }
+
+    #[test]
+    fn empty_and_error_snapshots_are_consumed_without_text() {
+        let mut consumed = 0;
+        let empty = SelectedTextSnapshot {
+            revision: 1,
+            result: SelectedTextResult::Text(None),
+        };
+        assert_eq!(synced_sample(true, &mut consumed, &empty), None);
+        assert_eq!(consumed, 1);
+
+        let error = SelectedTextSnapshot {
+            revision: 2,
+            result: SelectedTextResult::Error("failed".to_string()),
+        };
+        assert_eq!(synced_sample(true, &mut consumed, &error), None);
+        assert_eq!(consumed, 2);
     }
 }

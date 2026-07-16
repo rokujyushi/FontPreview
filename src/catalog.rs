@@ -127,7 +127,7 @@ impl FontItem {
 
 pub(crate) fn enumerate(first_team_dir: &Path, library_dir: &Path) -> Result<Vec<FontItem>> {
     let started = Instant::now();
-    tracing::info!(
+    tracing::debug!(
         first_team_dir = %first_team_dir.display(),
         library_dir = %library_dir.display(),
         "FontPreview catalog enumerate start"
@@ -149,7 +149,7 @@ pub(crate) fn enumerate(first_team_dir: &Path, library_dir: &Path) -> Result<Vec
             FontSource::Library,
             &mut paths,
         ));
-        tracing::info!(
+        tracing::debug!(
             count = fonts.len(),
             elapsed_ms = started.elapsed().as_millis(),
             "FontPreview catalog enumerate finish"
@@ -160,7 +160,7 @@ pub(crate) fn enumerate(first_team_dir: &Path, library_dir: &Path) -> Result<Vec
 
 unsafe fn system_fonts(factory: &IDWriteFactory7) -> Result<Vec<FontItem>> {
     let started = Instant::now();
-    tracing::info!("FontPreview system font enumerate start");
+    tracing::debug!("FontPreview system font enumerate start");
     let base: IDWriteFactory = factory.cast()?;
     let mut collection = None;
     unsafe { base.GetSystemFontCollection(&mut collection, false)? };
@@ -190,7 +190,7 @@ unsafe fn system_fonts(factory: &IDWriteFactory7) -> Result<Vec<FontItem>> {
         };
         fonts.push(FontItem::new_system(name, axes));
     }
-    tracing::info!(
+    tracing::debug!(
         count = fonts.len(),
         elapsed_ms = started.elapsed().as_millis(),
         "FontPreview system font enumerate finish"
@@ -205,13 +205,13 @@ unsafe fn local_fonts(
     seen_paths: &mut HashSet<PathBuf>,
 ) -> Vec<FontItem> {
     let started = Instant::now();
-    tracing::info!(
+    tracing::debug!(
         source = source.label(),
         directory = %directory.display(),
         "FontPreview local font enumerate start"
     );
     let Ok(entries) = std::fs::read_dir(directory) else {
-        tracing::info!(
+        tracing::debug!(
             source = source.label(),
             directory = %directory.display(),
             "FontPreview local font directory missing or unreadable"
@@ -242,7 +242,7 @@ unsafe fn local_fonts(
             Some(FontItem::new_local(family, path, source, axes))
         })
         .collect::<Vec<_>>();
-    tracing::info!(
+    tracing::debug!(
         source = source.label(),
         count = fonts.len(),
         elapsed_ms = started.elapsed().as_millis(),

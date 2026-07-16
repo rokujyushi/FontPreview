@@ -1,6 +1,6 @@
 [package]
 name = "font-preview-plugin"
-version = "4.0.1"
+version = "4.1.0"
 edition = "2024"
 license = "MIT"
 
@@ -10,8 +10,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1"
-aviutl2 = "0"
-aviutl2-eframe = "0"
+aviutl2 = "0.39"
+aviutl2-eframe = { version = "0.39", default-features = false, features = ["default_fonts"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
