@@ -12,6 +12,8 @@ use aviutl2::AnyResult;
 mod actions;
 mod alias;
 mod catalog;
+mod fonts;
+mod i18n;
 mod preview;
 mod settings;
 mod ui;
@@ -328,6 +330,7 @@ struct FontPreviewPlugin {
 
 impl aviutl2::generic::GenericPlugin for FontPreviewPlugin {
     fn new(_info: aviutl2::AviUtl2Info) -> AnyResult<Self> {
+        i18n::initialize();
         let _ = aviutl2::tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
             .with_ansi(false)
@@ -381,21 +384,29 @@ impl aviutl2::generic::GenericPlugin for FontPreviewPlugin {
         match self.window.handle() {
             Ok(handle) => {
                 tracing::debug!("FontPreview eframe window handle acquired");
-                if let Err(error) = host.register_window_client("Font Preview", &handle) {
-                    tracing::error!("Font Previewウィンドウの登録に失敗しました: {error}");
+                if let Err(error) =
+                    host.register_window_client(&i18n::text("Font Preview"), &handle)
+                {
+                    tracing::error!(
+                        "{}: {error}",
+                        i18n::text("Font Previewウィンドウの登録に失敗しました")
+                    );
                 } else {
                     tracing::debug!("FontPreview window client registered");
                 }
             }
-            Err(error) => tracing::error!("Font Previewウィンドウを取得できませんでした: {error}"),
+            Err(error) => tracing::error!(
+                "{}: {error}",
+                i18n::text("Font Previewウィンドウを取得できませんでした")
+            ),
         }
         let drop_state = Arc::clone(&self.shared_edit);
         let font_dir = aviutl2::config::app_data_path().join("Font");
         let filters = aviutl2::file_filters! {
-            "フォントファイル" => ["ttf", "otf", "ttc"]
+            i18n::text("フォントファイル") => ["ttf", "otf", "ttc"]
         };
         host.register_file_drop_handler(
-            "Font Previewへフォントを追加",
+            &i18n::text("Font Previewへフォントを追加"),
             &filters,
             move |source| import_dropped_font(&drop_state, &font_dir, &source),
         );

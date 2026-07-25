@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{FontId, FontItem, FontSource};
+use crate::i18n::format_text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum FilterMode {
@@ -64,13 +65,19 @@ impl Settings {
                 Ok(settings) => (settings, None),
                 Err(error) => (
                     Self::default(),
-                    Some(format!("設定ファイルを読み込めませんでした: {error}")),
+                    Some(format_text(
+                        "設定ファイルを読み込めませんでした: {error}",
+                        &[("{error}", error.to_string())],
+                    )),
                 ),
             },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Self::default(), None),
             Err(error) => (
                 Self::default(),
-                Some(format!("設定ファイルを読み込めませんでした: {error}")),
+                Some(format_text(
+                    "設定ファイルを読み込めませんでした: {error}",
+                    &[("{error}", error.to_string())],
+                )),
             ),
         }
     }
@@ -80,8 +87,12 @@ impl Settings {
             std::fs::create_dir_all(parent)?;
         }
         let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, content)
-            .with_context(|| format!("設定を書き込めませんでした: {}", path.display()))
+        std::fs::write(path, content).with_context(|| {
+            format_text(
+                "設定を書き込めませんでした: {path}",
+                &[("{path}", path.display().to_string())],
+            )
+        })
     }
 
     pub fn apply_favorites(&self, fonts: &mut [FontItem]) {

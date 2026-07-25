@@ -13,6 +13,12 @@ AviUtl ExEdit2 向けの汎用プラグイン（`.aux2`）です。
 配布パッケージを再生ウィンドウにドラッグアンドドロップしプラグインの導入を承認してください。
 自動的に`C:\ProgramData\aviutl2\Plugin\FontPreview`へ展開されます。
 
+英語と簡体中文の差分言語ファイルを同梱しています。AviUtl2の「設定」→「言語の設定」で言語を切り替えると、Font Previewの画面、操作結果、D&D項目も切り替わります。日本語は既定表示です。
+
+独自UIはAviUtl2のUIフォントを優先し、言語ファイルの`__FontFallbackFonts`に指定されたシステムフォントを不足グリフ用のフォールバックとして使用します。簡体中文では`Microsoft YaHei UI`、`Microsoft YaHei`、`SimSun`の順に利用可能なフォントを検索します。
+
+配布パッケージの`package.ini`は`aviutl2.toml`の`[release]`から自動生成され、インストール説明の`package.txt`は日本語・英語・簡体中文を併記しています。
+
 ## 使い方
 
 プラグインを読み込むと、AviUtl2のウィンドウ一覧へ`Font Preview`が追加されます。
@@ -115,4 +121,3 @@ Rust 2024 editionを使用し、主なAviUtl2依存関係は`aviutl2 = 0.39`と`
 通常の進行ログと同期診断ログは、AviUtl2のログへ`VERBOSE`レベルで出力します。警告とエラーはそれぞれ`WARN`、`ERROR`のまま出力します。
 
 `aviutl2-cli`を利用する場合は、`aviutl2.toml`からプレビュー・パッケージ作成できます。
-

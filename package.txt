@@ -1,0 +1,16 @@
+Font Preview
+
+【日本語】
+AviUtl2用のフォント検索・プレビュー・オブジェクト追加プラグインをインストールします。
+英語・簡体中文の言語ファイルを同梱しています。
+使用方法はPlugin/FontPreview/README.md、ライセンスはPlugin/FontPreview/LICENSEをご覧ください。
+
+[English]
+Installs the Font Preview plugin for searching and previewing fonts and adding text objects in AviUtl2.
+English and Simplified Chinese language files are included.
+See Plugin/FontPreview/README.md for usage and Plugin/FontPreview/LICENSE for license terms.
+
+【简体中文】
+安装Font Preview插件，可在AviUtl2中搜索和预览字体，并添加文本对象。
+本软件包包含英语和简体中文语言文件。
+使用方法请参阅Plugin/FontPreview/README.md，许可条款请参阅Plugin/FontPreview/LICENSE。

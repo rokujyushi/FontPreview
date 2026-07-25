@@ -5,6 +5,7 @@ use aviutl2::generic::EditHandle;
 
 use crate::alias::{self, ObjectKind};
 use crate::catalog::{FontItem, FontSource};
+use crate::i18n::{format_text, text as tr};
 
 const DEFAULT_OBJECT_SECONDS: f64 = 1.1;
 const TEXT_EFFECTS: [&str; 3] = ["テキスト", "Variable Font Text", "Variable Font Object"];
@@ -17,25 +18,32 @@ pub(crate) enum FontImport {
 
 pub(crate) fn import_font_file(source: &Path, font_dir: &Path) -> Result<FontImport> {
     if !source.is_file() {
-        bail!(
-            "ドロップされたフォントファイルが見つかりません: {}",
-            source.display()
-        );
+        bail!(format_text(
+            "ドロップされたフォントファイルが見つかりません: {path}",
+            &[("{path}", source.display().to_string())]
+        ));
     }
     let extension = source
         .extension()
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase)
-        .context("フォントファイルの拡張子を取得できません")?;
+        .context(tr("フォントファイルの拡張子を取得できません"))?;
     if !matches!(extension.as_str(), "ttf" | "otf" | "ttc") {
-        bail!("対応していないフォント形式です: .{extension}");
+        bail!(format_text(
+            "対応していないフォント形式です: .{extension}",
+            &[("{extension}", extension)]
+        ));
     }
 
     let file_name = source
         .file_name()
-        .context("フォントファイル名を取得できません")?;
-    std::fs::create_dir_all(font_dir)
-        .with_context(|| format!("Fontフォルダを作成できません: {}", font_dir.display()))?;
+        .context(tr("フォントファイル名を取得できません"))?;
+    std::fs::create_dir_all(font_dir).with_context(|| {
+        format_text(
+            "Fontフォルダを作成できません: {path}",
+            &[("{path}", font_dir.display().to_string())],
+        )
+    })?;
     let target = font_dir.join(file_name);
     if target.exists() {
         let source_path = source.canonicalize().ok();
@@ -43,14 +51,19 @@ pub(crate) fn import_font_file(source: &Path, font_dir: &Path) -> Result<FontImp
         if source_path.is_some() && source_path == target_path {
             return Ok(FontImport::AlreadyPresent(target));
         }
-        bail!("Fontフォルダに同名ファイルがあります: {}", target.display());
+        bail!(format_text(
+            "Fontフォルダに同名ファイルがあります: {path}",
+            &[("{path}", target.display().to_string())]
+        ));
     }
 
     std::fs::copy(source, &target).with_context(|| {
-        format!(
-            "フォントファイルをコピーできませんでした: {} -> {}",
-            source.display(),
-            target.display()
+        format_text(
+            "フォントファイルをコピーできませんでした: {source} -> {target}",
+            &[
+                ("{source}", source.display().to_string()),
+                ("{target}", target.display().to_string()),
+            ],
         )
     })?;
     Ok(FontImport::Copied(target))
@@ -63,7 +76,7 @@ pub(crate) fn create_object(
     kind: ObjectKind,
 ) -> Result<()> {
     if !handle.is_ready() {
-        bail!("AviUtl2の編集機能を初期化中です");
+        bail!(tr("AviUtl2の編集機能を初期化中です"));
     }
     let started = std::time::Instant::now();
     tracing::debug!(
@@ -83,7 +96,7 @@ pub(crate) fn create_object(
             edit.create_object_from_alias(&alias, edit.info.layer, edit.info.frame, 0)?;
             Ok::<_, aviutl2::generic::EditSectionError>(())
         })
-        .context("編集セクションを開けませんでした")??;
+        .context(tr("編集セクションを開けませんでした"))??;
     tracing::debug!(
         elapsed_ms = started.elapsed().as_millis(),
         "FontPreview create object finish"
@@ -93,7 +106,7 @@ pub(crate) fn create_object(
 
 pub(crate) fn apply_to_selection(handle: &EditHandle, font: &FontItem) -> Result<usize> {
     if !handle.is_ready() {
-        bail!("AviUtl2の編集機能を初期化中です");
+        bail!(tr("AviUtl2の編集機能を初期化中です"));
     }
     let started = std::time::Instant::now();
     tracing::debug!(font = %font.display_name, "FontPreview apply to selection start");
@@ -138,9 +151,9 @@ pub(crate) fn apply_to_selection(handle: &EditHandle, font: &FontItem) -> Result
             }
             Ok::<_, aviutl2::generic::EditSectionError>(updated)
         })
-        .context("編集セクションを開けませんでした")??;
+        .context(tr("編集セクションを開けませんでした"))??;
     if count == 0 {
-        bail!("更新できるオブジェクトが選択されていません");
+        bail!(tr("更新できるオブジェクトが選択されていません"));
     }
     tracing::debug!(
         count,
@@ -196,8 +209,8 @@ pub(crate) fn selected_text(handle: &EditHandle) -> Result<Option<String>> {
             }
             Ok::<_, aviutl2::generic::EditSectionError>(None)
         })
-        .context("編集セクションを参照できませんでした")?
-        .context("テキスト取得に失敗しました");
+        .context(tr("編集セクションを参照できませんでした"))?
+        .context(tr("テキスト取得に失敗しました"));
     tracing::debug!(
         elapsed_ms = started.elapsed().as_millis(),
         has_text = result
@@ -218,26 +231,36 @@ pub(crate) fn move_local_font(
     let source = font
         .path
         .as_ref()
-        .context("ローカルフォントではありません")?;
+        .context(tr("ローカルフォントではありません"))?;
     let target_dir = match font.source {
         FontSource::FirstTeam => library_dir,
         FontSource::Library => first_team_dir,
-        FontSource::System => bail!("システムフォントは移動できません"),
+        FontSource::System => bail!(tr("システムフォントは移動できません")),
     };
     std::fs::create_dir_all(target_dir)?;
-    let file_name = source.file_name().context("ファイル名を取得できません")?;
+    let file_name = source
+        .file_name()
+        .context(tr("ファイル名を取得できません"))?;
     let target = target_dir.join(file_name);
     if target.exists() {
-        bail!("移動先に同名ファイルがあります: {}", target.display());
+        bail!(format_text(
+            "移動先に同名ファイルがあります: {path}",
+            &[("{path}", target.display().to_string())]
+        ));
     }
     if !source.exists() {
-        bail!("フォントファイルが見つかりません: {}", source.display());
+        bail!(format_text(
+            "フォントファイルが見つかりません: {path}",
+            &[("{path}", source.display().to_string())]
+        ));
     }
     std::fs::rename(source, &target).with_context(|| {
-        format!(
-            "フォントを移動できませんでした: {} -> {}",
-            source.display(),
-            target.display()
+        format_text(
+            "フォントを移動できませんでした: {source} -> {target}",
+            &[
+                ("{source}", source.display().to_string()),
+                ("{target}", target.display().to_string()),
+            ],
         )
     })?;
     Ok(target)

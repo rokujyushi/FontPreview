@@ -8,6 +8,7 @@ use aviutl2_eframe::{AviUtl2EframeHandle, eframe, egui};
 use crate::actions;
 use crate::alias::ObjectKind;
 use crate::catalog::{FontId, FontItem, FontSource, enumerate};
+use crate::i18n::{format_text, text};
 use crate::settings::{FilterMode, Settings, SortMode, settings_path};
 use crate::{FontDropOutcome, SelectedTextResult, SelectedTextSnapshot, SharedEditState};
 
@@ -48,7 +49,7 @@ impl FontPreviewApp {
         cc.egui_ctx.all_styles_mut(|style| {
             style.visuals = aviutl2_eframe::aviutl2_visuals();
         });
-        cc.egui_ctx.set_fonts(aviutl2_eframe::aviutl2_fonts());
+        cc.egui_ctx.set_fonts(crate::fonts::definitions());
         shared_edit.init_egui_ctx(cc.egui_ctx.clone());
 
         let first_team_dir = app_data.join("Font");
@@ -60,7 +61,10 @@ impl FontPreviewApp {
             Ok(fonts) => (fonts, None),
             Err(error) => {
                 tracing::error!(error = %format!("{error:#}"), "FontPreview catalog enumerate failed");
-                (Vec::new(), Some(format!("フォント列挙エラー: {error:#}")))
+                (
+                    Vec::new(),
+                    Some(format!("{}: {error:#}", text("フォント列挙エラー"))),
+                )
             }
         };
         settings.apply_favorites(&mut fonts);
@@ -127,7 +131,10 @@ impl FontPreviewApp {
                 self.selected =
                     selected_id.and_then(|id| self.fonts.iter().position(|font| font.id == id));
                 self.rebuild_filter();
-                self.status = Some(format!("{}件のフォントを読み込みました", self.fonts.len()));
+                self.status = Some(format_text(
+                    "{count}件のフォントを読み込みました",
+                    &[("{count}", self.fonts.len().to_string())],
+                ));
                 tracing::debug!(
                     fonts = self.fonts.len(),
                     elapsed_ms = started.elapsed().as_millis(),
@@ -140,7 +147,7 @@ impl FontPreviewApp {
                     elapsed_ms = started.elapsed().as_millis(),
                     "FontPreview refresh catalog failed"
                 );
-                self.status = Some(format!("再読み込みエラー: {error:#}"));
+                self.status = Some(format!("{}: {error:#}", text("再読み込みエラー")));
             }
         }
     }
@@ -151,7 +158,7 @@ impl FontPreviewApp {
 
     fn save_settings(&mut self) {
         if let Err(error) = self.settings.save(&self.settings_path) {
-            self.status = Some(format!("設定保存エラー: {error:#}"));
+            self.status = Some(format!("{}: {error:#}", text("設定保存エラー")));
         }
     }
 
@@ -200,14 +207,17 @@ impl FontPreviewApp {
         match snapshot.outcome {
             Some(FontDropOutcome::Imported(path)) => {
                 self.refresh_catalog();
-                self.status = Some(format!("フォントを追加しました: {path}"));
+                self.status = Some(format!("{}: {path}", text("フォントを追加しました")));
             }
             Some(FontDropOutcome::AlreadyPresent(path)) => {
                 self.refresh_catalog();
-                self.status = Some(format!("フォントは既に追加されています: {path}"));
+                self.status = Some(format!(
+                    "{}: {path}",
+                    text("フォントは既に追加されています")
+                ));
             }
             Some(FontDropOutcome::Error(error)) => {
-                self.status = Some(format!("フォント追加エラー: {error}"));
+                self.status = Some(format!("{}: {error}", text("フォント追加エラー")));
             }
             None => {}
         }
@@ -222,7 +232,7 @@ impl FontPreviewApp {
             self.preview = None;
             return;
         };
-        let text = if self.settings.sample.is_empty() {
+        let preview_text = if self.settings.sample.is_empty() {
             "あいうABC123"
         } else {
             &self.settings.sample
@@ -230,13 +240,13 @@ impl FontPreviewApp {
         let started = Instant::now();
         tracing::debug!(
             font = %font.display_name,
-            text_len = text.len(),
+            text_len = preview_text.len(),
             font_size = self.settings.preview_font_size,
             "FontPreview detail preview render start"
         );
         match crate::preview::render(
             font,
-            text,
+            preview_text,
             self.settings.preview_background_color,
             self.settings.preview_text_color,
             640,
@@ -257,7 +267,7 @@ impl FontPreviewApp {
             }
             Err(error) => {
                 self.preview = None;
-                self.status = Some(format!("プレビューエラー: {error:#}"));
+                self.status = Some(format!("{}: {error:#}", text("プレビューエラー")));
                 tracing::error!(
                     error = %format!("{error:#}"),
                     elapsed_ms = started.elapsed().as_millis(),
@@ -307,7 +317,7 @@ impl FontPreviewApp {
             .find(|font| font.id == pending.font_id)
             .cloned()
         else {
-            self.status = Some("移動対象のフォントが見つかりません".to_string());
+            self.status = Some(text("移動対象のフォントが見つかりません"));
             return;
         };
         match actions::move_local_font(&font, &self.first_team_dir, &self.library_dir) {
@@ -316,11 +326,11 @@ impl FontPreviewApp {
                 debug_assert_eq!(favorite, pending.favorite);
                 self.save_settings();
                 self.refresh_catalog();
-                self.status = Some(
-                    "フォントを移動しました。AviUtl2のメニュー反映には再起動が必要です".to_string(),
-                );
+                self.status = Some(text(
+                    "フォントを移動しました。AviUtl2のメニュー反映には再起動が必要です",
+                ));
             }
-            Err(error) => self.status = Some(format!("フォント移動エラー: {error:#}")),
+            Err(error) => self.status = Some(format!("{}: {error:#}", text("フォント移動エラー"))),
         }
     }
 
@@ -328,7 +338,7 @@ impl FontPreviewApp {
         let Some(pending) = &self.pending_move else {
             return;
         };
-        let destination = pending.destination.label();
+        let destination = text(pending.destination.label());
         let font_name = self
             .fonts
             .iter()
@@ -337,18 +347,22 @@ impl FontPreviewApp {
             .unwrap_or_default();
         let mut confirm = false;
         let mut cancel = false;
-        egui::Window::new("フォントを移動")
+        egui::Window::new(text("フォントを移動"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label(format!(
-                    "「{font_name}」を「{destination}」へ移動しますか？"
+                ui.label(format_text(
+                    "「{font}」を「{destination}」へ移動しますか？",
+                    &[
+                        ("{font}", font_name.clone()),
+                        ("{destination}", destination.clone()),
+                    ],
                 ));
-                ui.label("AviUtl2のフォントメニュー反映には再起動が必要です。");
+                ui.label(text("AviUtl2のフォントメニュー反映には再起動が必要です。"));
                 ui.horizontal(|ui| {
-                    confirm = ui.button("移動").clicked();
-                    cancel = ui.button("キャンセル").clicked();
+                    confirm = ui.button(text("移動")).clicked();
+                    cancel = ui.button(text("キャンセル")).clicked();
                 });
             });
         if confirm {
@@ -360,8 +374,8 @@ impl FontPreviewApp {
 
     fn action_result(&mut self, result: anyhow::Result<()>) {
         self.status = Some(match result {
-            Ok(()) => "操作を完了しました".to_string(),
-            Err(error) => format!("操作に失敗しました: {error:#}"),
+            Ok(()) => text("操作を完了しました"),
+            Err(error) => format!("{}: {error:#}", text("操作に失敗しました")),
         });
     }
 }
@@ -378,7 +392,7 @@ impl eframe::App for FontPreviewApp {
                     let _ = self.window_handle.show_context_menu();
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("再読み込み").clicked() {
+                    if ui.button(text("再読み込み")).clicked() {
                         self.refresh_catalog();
                     }
                 });
@@ -386,14 +400,14 @@ impl eframe::App for FontPreviewApp {
             let search_changed = ui
                 .add(
                     egui::TextEdit::singleline(&mut self.search)
-                        .hint_text("フォント名を検索...")
+                        .hint_text(text("フォント名を検索..."))
                         .desired_width(f32::INFINITY),
                 )
                 .changed();
             let old_filter = self.settings.filter;
             let old_sort = self.settings.sort;
             ui.horizontal(|ui| {
-                ui.label("絞り込み:");
+                ui.label(text("絞り込み:"));
                 egui::ComboBox::from_id_salt("font-filter")
                     .selected_text(filter_label(self.settings.filter))
                     .show_ui(ui, |ui| {
@@ -413,7 +427,7 @@ impl eframe::App for FontPreviewApp {
                         }
                     });
                 ui.separator();
-                ui.label("並び替え:");
+                ui.label(text("並び替え:"));
                 egui::ComboBox::from_id_salt("font-sort")
                     .selected_text(sort_label(self.settings.sort))
                     .show_ui(ui, |ui| {
@@ -440,11 +454,11 @@ impl eframe::App for FontPreviewApp {
             if ui
                 .checkbox(
                     &mut self.settings.move_local_fonts_with_favorites,
-                    "星操作でローカルフォント / プラグイン専用を連動",
+                    text("星操作でローカルフォント / プラグイン専用を連動"),
                 )
-                .on_hover_text(
+                .on_hover_text(text(
                     "有効にすると、お気に入り登録時はFontへ、解除時はFontLibraryへ移動します",
-                )
+                ))
                 .changed()
             {
                 self.save_settings();
@@ -459,7 +473,13 @@ impl eframe::App for FontPreviewApp {
                     egui::vec2(list_width, content_height),
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
-                        ui.label(format!("{} / {}件", self.filtered.len(), self.fonts.len()));
+                        ui.label(format_text(
+                            "{shown} / {total}件",
+                            &[
+                                ("{shown}", self.filtered.len().to_string()),
+                                ("{total}", self.fonts.len().to_string()),
+                            ],
+                        ));
                         egui::ScrollArea::vertical()
                             .auto_shrink([false, false])
                             .max_height(ui.available_height())
@@ -476,11 +496,11 @@ impl eframe::App for FontPreviewApp {
                                                         .settings
                                                         .move_local_fonts_with_favorites
                                                 {
-                                                    "お気に入りを切り替え"
+                                                    text("お気に入りを切り替え")
                                                 } else if font.source == FontSource::FirstTeam {
-                                                    "プラグイン専用へ移動"
+                                                    text("プラグイン専用へ移動")
                                                 } else {
-                                                    "ローカルフォントへ移動"
+                                                    text("ローカルフォントへ移動")
                                                 },
                                             )
                                             .clicked()
@@ -490,7 +510,7 @@ impl eframe::App for FontPreviewApp {
                                         ui.vertical(|ui| {
                                             let badges = format!(
                                                 "{}{}",
-                                                font.source.label(),
+                                                text(font.source.label()),
                                                 if font.axes.is_empty() { "" } else { " / VF" }
                                             );
                                             let response = ui.selectable_label(
@@ -498,7 +518,7 @@ impl eframe::App for FontPreviewApp {
                                                 format!("{}  [{}]", font.display_name, badges),
                                             );
                                             response.context_menu(|ui| {
-                                                if ui.button("フォント名をコピー").clicked()
+                                                if ui.button(text("フォント名をコピー")).clicked()
                                                 {
                                                     ui.copy_text(font.family_name.clone());
                                                     ui.close();
@@ -515,20 +535,24 @@ impl eframe::App for FontPreviewApp {
                                                         .shared_edit
                                                         .edit_handle()
                                                         .ok_or_else(|| {
-                                                            anyhow::anyhow!(
+                                                            anyhow::anyhow!(text(
                                                                 "AviUtl2の編集機能を初期化中です"
-                                                            )
+                                                            ))
                                                         })
                                                         .and_then(|handle| {
                                                             actions::apply_to_selection(
                                                                 handle, &font,
                                                             )
                                                         }) {
-                                                        Ok(count) => format!(
-                                                            "{count}個のオブジェクトを更新しました"
+                                                        Ok(count) => format_text(
+                                                            "{count}個のオブジェクトを更新しました",
+                                                            &[("{count}", count.to_string())],
                                                         ),
                                                         Err(error) => {
-                                                            format!("更新に失敗しました: {error:#}")
+                                                            format!(
+                                                                "{}: {error:#}",
+                                                                text("更新に失敗しました")
+                                                            )
                                                         }
                                                     },
                                                 );
@@ -545,25 +569,25 @@ impl eframe::App for FontPreviewApp {
                     if let Some(font) = selected {
                         ui.horizontal(|ui| {
                             ui.heading(&font.family_name);
-                            if ui.button("名前をコピー").clicked() {
+                            if ui.button(text("名前をコピー")).clicked() {
                                 ui.copy_text(font.family_name.clone());
-                                self.status = Some("フォント名をコピーしました".to_string());
+                                self.status = Some(text("フォント名をコピーしました"));
                             }
                         });
                         ui.label(format!(
                             "{}{}",
-                            font.source.label(),
+                            text(font.source.label()),
                             if font.favorite {
-                                " / お気に入り"
+                                format!(" / {}", text("お気に入り"))
                             } else {
-                                ""
+                                String::new()
                             }
                         ));
                         if let Some(path) = &font.path {
                             ui.small(path.display().to_string());
                         }
                         ui.label(if font.axes.is_empty() {
-                            "可変軸: なし".to_string()
+                            text("可変軸: なし")
                         } else {
                             font.axes
                                 .iter()
@@ -574,10 +598,10 @@ impl eframe::App for FontPreviewApp {
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
                             let sync_changed = ui
-                                .selectable_label(self.settings.sync_text, "選択に同期")
+                                .selectable_label(self.settings.sync_text, text("選択に同期"))
                                 .clicked();
                             let fixed_changed = ui
-                                .selectable_label(!self.settings.sync_text, "固定")
+                                .selectable_label(!self.settings.sync_text, text("固定"))
                                 .clicked();
                             if sync_changed {
                                 self.settings.sync_text = true;
@@ -592,7 +616,7 @@ impl eframe::App for FontPreviewApp {
                         if ui
                             .add(
                                 egui::TextEdit::singleline(&mut sample)
-                                    .hint_text("プレビューテキスト"),
+                                    .hint_text(text("プレビューテキスト")),
                             )
                             .changed()
                         {
@@ -601,7 +625,7 @@ impl eframe::App for FontPreviewApp {
                         }
                         let mut preview_settings_changed = false;
                         ui.horizontal(|ui| {
-                            ui.label("サイズ");
+                            ui.label(text("サイズ"));
                             preview_settings_changed |= ui
                                 .add(
                                     egui::Slider::new(
@@ -613,7 +637,7 @@ impl eframe::App for FontPreviewApp {
                                 .changed();
                         });
                         ui.horizontal(|ui| {
-                            ui.label("文字色");
+                            ui.label(text("文字色"));
                             let mut text_color = egui::Color32::from_rgb(
                                 self.settings.preview_text_color[0],
                                 self.settings.preview_text_color[1],
@@ -630,7 +654,7 @@ impl eframe::App for FontPreviewApp {
                                     text_color.to_array()[..3].try_into().unwrap();
                                 preview_settings_changed = true;
                             }
-                            ui.label("背景");
+                            ui.label(text("背景"));
                             let mut background_color = egui::Color32::from_rgb(
                                 self.settings.preview_background_color[0],
                                 self.settings.preview_background_color[1],
@@ -660,12 +684,12 @@ impl eframe::App for FontPreviewApp {
                         }
                         ui.add_space(8.0);
                         ui.horizontal_wrapped(|ui| {
-                            if ui.button("テキスト +").clicked() {
+                            if ui.button(text("テキスト +")).clicked() {
                                 self.action_result(
                                     self.shared_edit
                                         .edit_handle()
                                         .ok_or_else(|| {
-                                            anyhow::anyhow!("AviUtl2の編集機能を初期化中です")
+                                            anyhow::anyhow!(text("AviUtl2の編集機能を初期化中です"))
                                         })
                                         .and_then(|handle| {
                                             actions::create_object(
@@ -677,12 +701,12 @@ impl eframe::App for FontPreviewApp {
                                         }),
                                 );
                             }
-                            if ui.button("VF +").clicked() {
+                            if ui.button(text("VF +")).clicked() {
                                 self.action_result(
                                     self.shared_edit
                                         .edit_handle()
                                         .ok_or_else(|| {
-                                            anyhow::anyhow!("AviUtl2の編集機能を初期化中です")
+                                            anyhow::anyhow!(text("AviUtl2の編集機能を初期化中です"))
                                         })
                                         .and_then(|handle| {
                                             actions::create_object(
@@ -694,12 +718,12 @@ impl eframe::App for FontPreviewApp {
                                         }),
                                 );
                             }
-                            if ui.button("VFO +").clicked() {
+                            if ui.button(text("VFO +")).clicked() {
                                 self.action_result(
                                     self.shared_edit
                                         .edit_handle()
                                         .ok_or_else(|| {
-                                            anyhow::anyhow!("AviUtl2の編集機能を初期化中です")
+                                            anyhow::anyhow!(text("AviUtl2の編集機能を初期化中です"))
                                         })
                                         .and_then(|handle| {
                                             actions::create_object(
@@ -711,27 +735,30 @@ impl eframe::App for FontPreviewApp {
                                         }),
                                 );
                             }
-                            if ui.button("選択中に適用").clicked() {
+                            if ui.button(text("選択中に適用")).clicked() {
                                 self.status = Some(
                                     match self
                                         .shared_edit
                                         .edit_handle()
                                         .ok_or_else(|| {
-                                            anyhow::anyhow!("AviUtl2の編集機能を初期化中です")
+                                            anyhow::anyhow!(text("AviUtl2の編集機能を初期化中です"))
                                         })
                                         .and_then(|handle| {
                                             actions::apply_to_selection(handle, &font)
                                         }) {
-                                        Ok(count) => {
-                                            format!("{count}個のオブジェクトを更新しました")
+                                        Ok(count) => format_text(
+                                            "{count}個のオブジェクトを更新しました",
+                                            &[("{count}", count.to_string())],
+                                        ),
+                                        Err(error) => {
+                                            format!("{}: {error:#}", text("更新に失敗しました"))
                                         }
-                                        Err(error) => format!("更新に失敗しました: {error:#}"),
                                     },
                                 );
                             }
                         });
                     } else {
-                        ui.label("一致するフォントがありません");
+                        ui.label(text("一致するフォントがありません"));
                     }
                     if let Some(status) = &self.status {
                         ui.separator();
@@ -796,25 +823,25 @@ fn compare_fonts(left: &FontItem, right: &FontItem, sort: SortMode) -> Ordering 
     }
 }
 
-fn filter_label(filter: FilterMode) -> &'static str {
-    match filter {
+fn filter_label(filter: FilterMode) -> String {
+    text(match filter {
         FilterMode::All => "すべて",
         FilterMode::System => "システム",
         FilterMode::FirstTeam => "ローカルフォント",
         FilterMode::Library => "プラグイン専用",
         FilterMode::Favorites => "お気に入り",
         FilterMode::Variable => "可変フォント",
-    }
+    })
 }
 
-fn sort_label(sort: SortMode) -> &'static str {
-    match sort {
+fn sort_label(sort: SortMode) -> String {
+    text(match sort {
         SortMode::FavoriteName => "お気に入り優先",
         SortMode::NameAsc => "名前昇順",
         SortMode::NameDesc => "名前降順",
         SortMode::Source => "種類順",
         SortMode::VariableFirst => "可変フォント優先",
-    }
+    })
 }
 
 #[cfg(test)]

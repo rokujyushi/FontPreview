@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use crate::i18n::format_text;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use windows::Win32::Graphics::DirectWrite::{
@@ -236,7 +237,16 @@ unsafe fn local_fonts(
         .filter_map(|path| {
             let (family, axes) = unsafe { local_font_info(factory, &path) }
                 .inspect_err(|error| {
-                    tracing::warn!("{}を読み込めませんでした: {error}", path.display())
+                    tracing::warn!(
+                        "{}",
+                        format_text(
+                            "{path}を読み込めませんでした: {error}",
+                            &[
+                                ("{path}", path.display().to_string()),
+                                ("{error}", error.to_string()),
+                            ],
+                        )
+                    )
                 })
                 .ok()?;
             Some(FontItem::new_local(family, path, source, axes))

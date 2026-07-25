@@ -846,11 +846,12 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "font-preview-plugin"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "anyhow",
  "aviutl2",
  "aviutl2-eframe",
+ "fontdb",
  "serde",
  "serde_json",
  "tracing",
