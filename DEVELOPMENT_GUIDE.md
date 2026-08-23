@@ -97,10 +97,91 @@ AviUtl2 が `register` を呼ぶと、プラグインは次を登録します。
 - `status`: 利用者へ見せる直近結果
 - `selected_text_revision`, `font_drop_revision`: 共有スナップショットの二重消費防止
 - `pending_move`: お気に入り連動のファイル移動を確認する一時状態
+- `scroll_to_row`: 次の描画で見える位置までスクロールすべき行
+- `preview_size`: 直前に描画したプレビューの実ピクセルサイズ
+- `list_active` / `list_rect`: リストがキー操作の対象かと、その判定に使う矩形
+- `show_options` / `options_rect`: 設定ウィンドウの開閉と、それが占めていた矩形
 
 ### 添字を扱うときの注意
 
 `filtered` と `selected` はどちらも `fonts` の添字です。表示行番号ではありません。カタログ再読込や並べ替えの前後では、添字ではなく `FontId` で選択を退避・復元しています。
+
+一方で `scroll_to_row` と `moved_row` が扱うのは **表示行番号**（`filtered` への添字）です。
+この2種類の番号を混ぜないよう、`selected_row` / `select_row` を介して変換します。
+
+### キーボード操作
+
+`handle_list_keys` は `ui()` の**先頭**で呼ばれます。検索欄の `TextEdit` より先に
+`consume_key` でキーを取り上げる必要があるためで、この順番は変えられません。
+
+拾う範囲は `key_scope_for` が決めます。**キーを広く取り上げてはいけません**。
+広く取ると、スライダーを矢印キーで微調整できなくなる、ボタンを押している間に
+選択フォントが勝手に変わる、といった事故が起きます（実際に一度これを踏みました）。
+
+拾うかどうかは **2段階**で決まります。
+
+**1段階目、フォーカスによる範囲（`key_scope_for`）**
+
+| 状態 | 範囲 |
+|---|---|
+| `keys.enabled` が off / 移動確認ダイアログ中 | `None` |
+| 検索欄（`SEARCH_FIELD_ID`）にフォーカス | `Search`（↑↓ と Enter だけ） |
+| 他のウィジェットにフォーカス | `None`（スライダーやボタンに譲る） |
+| フォーカスなし かつ `list_active` | `List`（全キー） |
+| フォーカスなし かつ `!list_active` | `None` |
+
+**2段階目、種別ごとの設定（`settings::KeyBindings`）**
+
+| フラグ | 対象のキー |
+|---|---|
+| `arrows` | ↑↓←→ / PageUp PageDown / Home End |
+| `letters` | W S / A D |
+| `enter_applies` | Enter |
+| `favorite` | F |
+| `create_objects` | 1 2 3（追加ボタンと同じ順） |
+
+矢印キーだけ、WASDだけ、といった使い分けのために分けています。
+問い合わせは必ず `arrows_active()` のようなメソッドを通してください。
+フィールドを直接見ると、マスタースイッチ `enabled` を取りこぼします。
+種別を増やすときは、フラグ・`*_active()`・設定ウィンドウの行・テストを揃えて追加します。
+
+`list_active` は `track_list_activation` が更新します。直近のポインタ押下が
+`list_rect` の中なら true、外なら false です。初期値は **false** で、一度もリストを
+押していないうちはキーを拾いません。有効な間はリストを枠線で囲って知らせます。
+
+`key_scope_for` は Context を取らない純関数なので、分岐は全てテストされています。
+**拾う範囲を変えるときはこの関数とテストを一緒に更新してください。**
+
+検索欄だけを特別扱いできるよう、`TextEdit::id` で固定 ID を与えています。
+文字キーを増やすときは、検索中に拾ってしまわないか必ず確認してください。
+
+リストは `ScrollArea::show_rows` で仮想化されており、**画面外の行には widget が存在しません**。
+そのため `response.scroll_to_me` は使えず、行高が一定であることを利用して目標矩形を自分で組み立て、
+`ui.scroll_to_rect` へ渡します。行のピッチは `ROW_HEIGHT` ではなく **`ROW_HEIGHT + item_spacing.y`** です。
+
+### 行のウィジェットIDは `push_id` で固定する
+
+`show_rows` は ID の整合を取るために `skip_ahead_auto_ids(min_row)` を呼びますが、これは
+**1行にウィジェットが1つ**しか想定していません。本実装の1行は星ボタンとラベルの2つを使うため、
+スクロールで先頭行が変わるたびに自動IDがずれ、egui が
+`changed id between passes` の警告を出します（実際にログへ 72 件出ました）。
+
+各行を `ui.push_id(&font.id, ...)` で包んで、ID を行位置から切り離しています。
+**1行にウィジェットを追加するときは、この `push_id` の中に入れてください。**
+
+### 画面の分け方
+
+| 場所 | 置くもの |
+|---|---|
+| ツールバー | 常に使うものだけ（検索、絞り込み、並び替え、再読み込み、設定ボタン） |
+| 詳細列 | 選択フォントに対する操作と、プレビューの見た目（サイズ・色・サンプル文字） |
+| **設定ウィンドウ** | **持続的な振る舞いの設定と、参照用のキー一覧** |
+
+設定ウィンドウは `show_options_window` が `egui::Window` で出します。
+**オプションを増やすときはここにセクションを追加してください。**ツールバーは広げません。
+
+ウィンドウはリストに重なり得るので、`track_list_activation` は `options_rect` に入った
+クリックを除外します。ウィンドウを増やすときは、同じように矩形を除外するかを検討してください。
 
 ## 6. フォントのモデルと列挙
 
@@ -144,7 +225,26 @@ AviUtl2 が `register` を呼ぶと、プラグインは次を登録します。
 
 ## 7. プレビュー描画
 
-`ui::update_preview` は、選択・サンプル文字・色・サイズが変わって `preview_dirty` になったときだけ `preview::render` を呼びます。出力サイズは現在 640×220 固定です。
+`ui::update_preview` は、選択・サンプル文字・色・サイズが変わって `preview_dirty` になったときだけ `preview::render` を呼びます。
+
+出力サイズは `preview_canvas` が決めます。
+
+- 幅は詳細列に追従する。ウィンドウリサイズ中の再描画を抑えるため 16pt 刻みへ丸める
+- 高さはフォントサイズに応じて伸び、`PREVIEW_CHROME_HEIGHT` を引いた値で頭打ち
+- **実ピクセル**で描いて等倍で貼る。よってフォントサイズも `pixels_per_point` を掛ける
+
+サイズが変わったことは `preview_size` との比較で検知し、`preview_dirty` を立てます。
+この比較を外すと、ウィンドウ幅を変えてもプレビューが古い解像度のまま引き伸ばされます。
+
+#### 寸法の元は `detail_area` だけ
+
+`preview_canvas` は `ui.available_width()` / `ui.available_height()` を**見てはいけません**。
+描画直前の残り領域はプレビュー画像自体の大きさに影響されるため、
+「画像サイズ → レイアウト → 画像サイズ」の帰還路ができ、何も操作していないのに
+再描画が繰り返されます（実際に一度これを踏みました）。
+
+代わりに、CentralPanel で左右に分けた**直後**に `detail_area` を確定させ、それだけを元にします。
+ログの `detail preview render start` には `canvas=WxH` が出るので、寸法が振動していないかはそこで見られます。
 
 `preview::render` の流れは次のとおりです。
 
@@ -189,7 +289,22 @@ TextureHandle
 3. `alias::build` でエイリアス文字列を生成
 4. `call_edit_section` 内で `create_object_from_alias`
 
-生成対象は標準 `テキスト`、`Variable Font Text`、`Variable Font Object` の3種です。標準テキストにはファミリー名を、可変フォント系にはシステムならファミリー名、ローカルならファイルパスを入れます。
+生成対象は標準 `テキスト`、`Variable Font Text`、`Variable Font Object` の3種です。
+
+ボタンのラベルと説明は `ObjectKind::button_label` / `description` が持ち、詳細列のボタンと
+設定ウィンドウのチェックボックスで共用します。**種別を増やすときはこの2つの `match` を
+埋めれば、両方の表示が揃います。**
+
+表示するボタンは `settings::CreateButtons` で個別に切れます。Variable Font 系は別の
+プラグインが入っていない環境では押しても失敗する（AviUtl2 のログに
+`not found effect. ... [Variable Font Text]` が出る）ためです。
+
+キーボードからも `1` `2` `3` で同じものを作れます。番号は `ObjectKind::shortcut_digit`、
+並びは `ObjectKind::ALL` で、この2つが一致することはテストで固定しています。
+
+**隠しているボタンのキーは受け付けません。** ボタンを隠すのは「その環境では使えない」からであり、
+キーだけ生きていると同じ失敗をキーで踏めてしまいます。判定は `ui::create_button_visible` に
+集めてあり、ボタン描画とキー処理の両方がこれを通ります。標準テキストにはファミリー名を、可変フォント系にはシステムならファミリー名、ローカルならファイルパスを入れます。
 
 エイリアスの項目名と effect 名は外部プラグインとの契約です。表記変更は単なるリファクタリングではありません。
 
@@ -294,8 +409,15 @@ sample / preview_dirty / settings.json
 - 選択テキスト同期
 - サンプル文字列
 - プレビューの文字サイズ、文字色、背景色
+- キーボード操作（`keys`：マスターと種別ごとのフラグ。全て既定で有効）
+- 追加ボタンの表示（`create_buttons`：種別ごとのフラグ。全て既定で表示）
 
 `Settings` には `#[serde(default)]` があるため、古い JSON に新しいフィールドがなくても既定値で補えます。設定項目を追加するときは `Settings` と `Default` の両方を更新し、旧形式を読むテストを追加してください。
+
+**bool を追加するときは特に注意してください。**コンテナの `#[serde(default)]` は
+欠落フィールドを構造体の `Default` から埋めるので、`Default` で `true` にしていれば
+既存の settings.json でも有効になります。`bool::default()`（= `false`）にはなりませんが、
+逆になると困る値なので `KeyBindings` についてはテストで固定しています。
 
 ロード失敗時は既定値へ戻り、エラー文字列を UI status に渡します。保存は一時ファイル+置換ではなく直接 `write` なので、異常終了時の厳密な耐障害性が必要になったら改善候補です。
 
@@ -439,6 +561,12 @@ DirectWrite が実際に読み込めるか、パッケージ/利用説明も含�
 | フォントが一覧に出ない | `catalog::enumerate`, `local_fonts`, DirectWrite の警告ログ |
 | VF と判定されない | `catalog::collect_axes` |
 | 一覧の検索/順序がおかしい | `ui::rebuild_filter`, `filter_matches`, `compare_fonts` |
+| キー操作が効かない/余計なキーまで拾う | `ui::key_scope_for`, `list_active`, `SEARCH_FIELD_ID` |
+| 設定を増やしたい | `ui::show_options_window` と `settings::Settings` |
+| 追加ボタンが出ない/押しても失敗する | `settings::CreateButtons` と、AviUtl2 ログの `not found effect.` |
+| 1 2 3 で追加できない | `keys.create_objects`, `create_button_visible`, `digit_key` |
+| 選択行までスクロールしない/行がずれる | `ui::scroll_to_row` と `ROW_HEIGHT + item_spacing.y` のピッチ |
+| プレビューがぼやける/大きくならない | `ui::preview_canvas`, `preview_size` |
 | プレビューだけ失敗する | `ui::update_preview`, `preview::render` |
 | オブジェクトを追加できない | `actions::create_object`, `alias::build` |
 | 選択へ適用できない | `actions::apply_to_selection` と effect/item 名 |
