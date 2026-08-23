@@ -9,6 +9,42 @@ pub(crate) enum ObjectKind {
     VariableFontObject,
 }
 
+impl ObjectKind {
+    /// 表示順。追加ボタンの並びと、キー操作の数字の両方がこの順に従う。
+    pub const ALL: [Self; 3] = [Self::Text, Self::VariableFontText, Self::VariableFontObject];
+
+    /// オブジェクト追加に割り当てる数字キー。1始まりで `ALL` の並びと一致する。
+    pub fn shortcut_digit(self) -> usize {
+        match self {
+            Self::Text => 1,
+            Self::VariableFontText => 2,
+            Self::VariableFontObject => 3,
+        }
+    }
+
+    /// 追加ボタンのラベル。設定ウィンドウのチェックボックスと共用する。
+    pub fn button_label(self) -> &'static str {
+        match self {
+            Self::Text => "テキスト +",
+            Self::VariableFontText => "VF +",
+            Self::VariableFontObject => "VFO +",
+        }
+    }
+
+    /// ボタンが何を作るのか。VF系は別プラグインが必要なのでそれも書く。
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Text => "標準の「テキスト」オブジェクトを追加します",
+            Self::VariableFontText => {
+                "「Variable Font Text」オブジェクトを追加します（対応プラグインが必要）"
+            }
+            Self::VariableFontObject => {
+                "「Variable Font Object」オブジェクトを追加します（対応プラグインが必要）"
+            }
+        }
+    }
+}
+
 pub(crate) fn frame_length(fps: aviutl2::common::Rational32, seconds: f64) -> usize {
     if seconds <= 0.0 || *fps.numer() <= 0 || *fps.denom() <= 0 {
         return FALLBACK_LENGTH;
@@ -71,6 +107,22 @@ mod tests {
         assert!(alias.contains("effect.name=Variable Font Text"));
         assert!(alias.contains(r"フォントファイル=C:\Fonts\Test.ttf"));
         assert!(alias.contains("テキスト=sample"));
+    }
+
+    #[test]
+    fn every_kind_has_a_label_and_a_description() {
+        for kind in ObjectKind::ALL {
+            assert!(!kind.button_label().is_empty());
+            assert!(!kind.description().is_empty());
+        }
+    }
+
+    #[test]
+    fn shortcut_digits_follow_the_button_order() {
+        // 設定ウィンドウの表示とキー割り当てがずれないことを固定する。
+        for (index, kind) in ObjectKind::ALL.into_iter().enumerate() {
+            assert_eq!(kind.shortcut_digit(), index + 1);
+        }
     }
 
     #[test]

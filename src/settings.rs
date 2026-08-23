@@ -26,12 +26,98 @@ pub(crate) enum SortMode {
     VariableFirst,
 }
 
+/// リストをキーボードで操作するときの、種別ごとの有効/無効。
+///
+/// 矢印キーだけ、WASDだけ、といった使い分けをするために分けている。
+/// `enabled` はマスタースイッチで、これがoffなら他がどうであれ全て無効。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct KeyBindings {
+    /// マスタースイッチ。
+    pub enabled: bool,
+    /// ↑↓←→ / PageUp PageDown / Home End。
+    pub arrows: bool,
+    /// W A S D。
+    pub letters: bool,
+    /// Enter で選択中に適用。
+    pub enter_applies: bool,
+    /// F でお気に入り切替。
+    pub favorite: bool,
+    /// 1 2 3 でオブジェクトを追加。
+    pub create_objects: bool,
+}
+
+impl Default for KeyBindings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            arrows: true,
+            letters: true,
+            enter_applies: true,
+            favorite: true,
+            create_objects: true,
+        }
+    }
+}
+
+impl KeyBindings {
+    // マスタースイッチの取りこぼしを防ぐため、問い合わせは必ずこれらを通す。
+    pub fn arrows_active(self) -> bool {
+        self.enabled && self.arrows
+    }
+
+    pub fn letters_active(self) -> bool {
+        self.enabled && self.letters
+    }
+
+    pub fn enter_active(self) -> bool {
+        self.enabled && self.enter_applies
+    }
+
+    pub fn favorite_active(self) -> bool {
+        self.enabled && self.favorite
+    }
+
+    pub fn create_active(self) -> bool {
+        self.enabled && self.create_objects
+    }
+}
+
+/// 詳細列に並ぶオブジェクト追加ボタンの表示。
+///
+/// Variable Font 系は別のプラグインが入っていない環境では押しても失敗するので、
+/// 使わないボタンを隔しておけるようにする。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct CreateButtons {
+    /// 標準の「テキスト」オブジェクト。
+    pub text: bool,
+    /// 「Variable Font Text」オブジェクト。
+    pub variable_font_text: bool,
+    /// 「Variable Font Object」オブジェクト。
+    pub variable_font_object: bool,
+}
+
+impl Default for CreateButtons {
+    fn default() -> Self {
+        Self {
+            text: true,
+            variable_font_text: true,
+            variable_font_object: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Settings {
     pub system_favorites: HashSet<FontId>,
     pub local_favorites: HashSet<FontId>,
     pub move_local_fonts_with_favorites: bool,
+    /// リストのキーボード操作。
+    pub keys: KeyBindings,
+    /// オブジェクト追加ボタンの表示。
+    pub create_buttons: CreateButtons,
     pub filter: FilterMode,
     pub sort: SortMode,
     pub sync_text: bool,
@@ -47,6 +133,8 @@ impl Default for Settings {
             system_favorites: HashSet::new(),
             local_favorites: HashSet::new(),
             move_local_fonts_with_favorites: false,
+            keys: KeyBindings::default(),
+            create_buttons: CreateButtons::default(),
             filter: FilterMode::All,
             sort: SortMode::FavoriteName,
             sync_text: false,
@@ -167,6 +255,69 @@ mod tests {
         )];
         settings.apply_favorites(&mut fonts);
         assert!(fonts[0].favorite);
+    }
+
+    #[test]
+    fn key_bindings_default_to_on_for_existing_settings() {
+        // コンテナの`#[serde(default)]`は欠落フィールドを`Default`から埋める。
+        // 既存のsettings.jsonにこのキーは無いので、全てtrueになることを固定する。
+        let loaded: Settings = serde_json::from_str(r#"{"sample": "test"}"#).unwrap();
+        assert_eq!(loaded.keys, KeyBindings::default());
+        assert!(loaded.keys.arrows_active());
+    }
+
+    #[test]
+    fn create_buttons_default_to_visible() {
+        let loaded: Settings = serde_json::from_str(r#"{"sample": "test"}"#).unwrap();
+        assert_eq!(loaded.create_buttons, CreateButtons::default());
+        assert!(loaded.create_buttons.text);
+    }
+
+    #[test]
+    fn hiding_one_create_button_keeps_the_others() {
+        let loaded: Settings =
+            serde_json::from_str(r#"{"create_buttons": {"variable_font_text": false}}"#).unwrap();
+        assert!(!loaded.create_buttons.variable_font_text);
+        assert!(loaded.create_buttons.text);
+        assert!(loaded.create_buttons.variable_font_object);
+    }
+
+    #[test]
+    fn partially_written_key_bindings_fill_in_the_rest() {
+        let loaded: Settings = serde_json::from_str(r#"{"keys": {"letters": false}}"#).unwrap();
+        assert!(!loaded.keys.letters);
+        assert!(loaded.keys.enabled);
+        assert!(loaded.keys.arrows);
+    }
+
+    #[test]
+    fn the_master_switch_overrides_every_group() {
+        let off = KeyBindings {
+            enabled: false,
+            ..KeyBindings::default()
+        };
+        assert!(!off.arrows_active());
+        assert!(!off.letters_active());
+        assert!(!off.enter_active());
+        assert!(!off.favorite_active());
+        assert!(!off.create_active());
+    }
+
+    #[test]
+    fn groups_can_be_used_one_at_a_time() {
+        let arrows_only = KeyBindings {
+            letters: false,
+            ..KeyBindings::default()
+        };
+        assert!(arrows_only.arrows_active());
+        assert!(!arrows_only.letters_active());
+
+        let letters_only = KeyBindings {
+            arrows: false,
+            ..KeyBindings::default()
+        };
+        assert!(!letters_only.arrows_active());
+        assert!(letters_only.letters_active());
     }
 
     #[test]
